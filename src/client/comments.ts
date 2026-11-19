@@ -16,17 +16,14 @@ import {
   formatTime,
   renderContent,
 } from "./content.ts";
-import { field, syntaxPicker, syntaxValue, textInput } from "./editor.ts";
+import { field, textInput } from "./editor.ts";
 import { createEmojiResolver } from "./emoji.ts";
 import { labelsFor } from "./labels.ts";
+import { syntaxIcon } from "./syntax-icons.ts";
 import { arrangeReplies, hasMoreReplies, mergeById } from "./threads.ts";
 import { loadTurnstile } from "./turnstile.ts";
 
 const tagName = "cf-comments";
-const syntaxDocs = {
-  gfm: "https://github.github.com/gfm/",
-  mfm: "https://misskey-hub.net/en/docs/for-users/features/mfm/",
-};
 
 let previewModule: Promise<typeof import("./preview.ts")> | undefined;
 
@@ -450,11 +447,20 @@ class Widget {
       },
       true,
     );
-    const syntax = syntaxPicker(
-      this.text.syntax,
-      config.markdown.default_syntax,
-      config.markdown.syntax_modes,
-    );
+    let selectedSyntax = config.markdown.default_syntax;
+    const syntax = element("div", "cc-row cc-syntax-buttons");
+    syntax.setAttribute("role", "group");
+    syntax.setAttribute("aria-label", this.text.syntax);
+    const syntaxButtons = config.markdown.syntax_modes.map((mode) => {
+      const control = button("", "cc-button cc-syntax-button");
+      control.value = mode;
+      control.title = this.text[mode];
+      control.setAttribute("aria-label", this.text[mode]);
+      control.setAttribute("aria-pressed", String(mode === selectedSyntax));
+      control.append(syntaxIcon(mode));
+      syntax.append(control);
+      return { control, mode };
+    });
     const toolbar = element("div", "cc-row cc-toolbar");
     const preview = button(this.text.preview, "cc-button cc-preview-toggle");
     preview.setAttribute("aria-pressed", "false");
@@ -472,14 +478,9 @@ class Widget {
       remaining.dataset.level =
         count <= 50 ? "error" : count <= 300 ? "warning" : "normal";
     };
-    const help = element("a", "cc-syntax-help");
-    help.target = "_blank";
-    help.rel = "noopener noreferrer";
-    const tools = element("div", "cc-row cc-format-tools");
-    tools.append(syntax, help);
     const actions = element("div", "cc-row cc-composer-actions");
     actions.append(preview, remaining, post);
-    toolbar.append(tools, actions);
+    toolbar.append(syntax, actions);
     const previewBox = element("div", "cc-md cc-preview");
     previewBox.id = "cc-live-preview";
     previewBox.hidden = true;
@@ -502,11 +503,9 @@ class Widget {
           previewBox.textContent = this.text.previewEmpty;
           return;
         }
-        const html = renderCommentContent(
-          value,
-          syntaxValue(new FormData(this.form)),
-          { misskeyInstanceUrl: config.misskey_instance_url },
-        );
+        const html = renderCommentContent(value, selectedSyntax, {
+          misskeyInstanceUrl: config.misskey_instance_url,
+        });
         this.showContent(previewBox, html, signal);
       } catch {
         if (!signal.aborted) previewBox.textContent = this.text.previewError;
@@ -531,28 +530,24 @@ class Widget {
       updateRemaining();
       schedulePreview();
     });
-    const updateSyntaxHelp = () => {
-      const mode = syntaxValue(new FormData(this.form));
-      help.href =
-        mode === "mfm" && /^zh(?:-|$)/i.test(this.locale)
-          ? "https://misskey-hub.net/cn/docs/for-users/features/mfm/"
-          : syntaxDocs[mode];
-      help.textContent = this.text[mode];
-    };
-    syntax.addEventListener("change", () => {
-      schedulePreview();
-      updateSyntaxHelp();
-    });
+    for (const { control, mode } of syntaxButtons) {
+      control.addEventListener("click", () => {
+        if (selectedSyntax === mode) return;
+        selectedSyntax = mode;
+        for (const item of syntaxButtons)
+          item.control.setAttribute("aria-pressed", String(item.mode === mode));
+        schedulePreview();
+      });
+    }
     this.form.append(
       this.target,
-      field(this.text.write, this.input),
       options,
+      field(this.text.write, this.input),
       honeypot,
     );
     if (config.turnstile_site_key) this.addCaptcha(config.turnstile_site_key);
     this.form.append(toolbar, previewBox, this.notice);
     this.setParent(null);
-    updateSyntaxHelp();
     updateRemaining();
     this.form.hidden = false;
     this.form.addEventListener("submit", async (event) => {
@@ -577,7 +572,7 @@ class Widget {
         path: this.path,
         parent_id: this.parent?.id ?? null,
         content: this.input.value,
-        syntax: syntaxValue(new FormData(this.form)),
+        syntax: selectedSyntax,
         author_name: name.value.trim() || null,
         author_email: mail.value.trim() || null,
         author_url: site.value.trim() || null,

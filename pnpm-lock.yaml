@@ -44,6 +44,9 @@ importers:
       "@cloudflare/workers-types":
         specifier: ^5.20261119.1
         version: 5.20261119.1
+      "@iconify-json/simple-icons":
+        specifier: ^1.2.100
+        version: 1.2.100
       "@types/hast":
         specifier: ^3.0.4
         version: 3.0.5
@@ -418,6 +421,18 @@ packages:
     resolution:
       {
         integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==,
+      }
+
+  "@iconify-json/simple-icons@1.2.100":
+    resolution:
+      {
+        integrity: sha512-536pN2RCEQyy5bYwzayrs4e9egr8cmtVcbdSHLaQl/ULUsihzn1eZ0+Hhn50zgz9cbEotiynKsKQSEjFJ7qKmw==,
+      }
+
+  "@iconify/types@2.0.0":
+    resolution:
+      {
+        integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==,
       }
 
   "@types/hast@3.0.5":
@@ -1134,6 +1149,12 @@ snapshots:
   "@types/debug@4.1.13":
     dependencies:
       "@types/ms": 2.1.0
+
+  "@iconify-json/simple-icons@1.2.100":
+    dependencies:
+      "@iconify/types": 2.0.0
+
+  "@iconify/types@2.0.0": {}
 
   "@types/hast@3.0.5":
     dependencies:

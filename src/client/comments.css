@@ -273,12 +273,9 @@
     outline-offset: -2px;
   }
 }
-.cc-options > summary,
-.cc-syntax-help {
+.cc-options > summary {
   color: var(--md-sys-color-on-surface-variant);
   font-size: 0.875rem;
-}
-.cc-options > summary {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -310,22 +307,26 @@
 .cc-options[open] .cc-options-name {
   display: none;
 }
-.cc-syntax-help {
-  display: inline-grid;
-  place-items: center;
-  padding-inline: 0.25rem;
-  font-size: 0.75rem;
-}
-.cc-widget :is(.cc-button, .cc-syntax-help, .cc-segments label span) {
+.cc-widget .cc-button {
   min-inline-size: 3rem;
   min-block-size: var(--cc-control-height);
   padding-inline: 0.625rem;
-}
-.cc-widget :is(.cc-button, .cc-segments label span) {
   transition:
     background-color var(--cc-motion) ease,
-    color var(--cc-motion) ease,
-    box-shadow var(--cc-motion) ease;
+    color var(--cc-motion) ease;
+}
+.cc-syntax-buttons {
+  gap: 0.25rem;
+}
+.cc-widget .cc-syntax-button {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 0.625rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.cc-syntax-button svg {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
 }
 .cc-widget .cc-button:not(:disabled):active {
   background: color-mix(in srgb, currentColor 12%, transparent);
@@ -337,9 +338,16 @@
     var(--md-sys-color-primary)
   );
 }
-.cc-widget .cc-segments label:active span {
-  box-shadow: inset 0 0 0 100vmax
-    color-mix(in srgb, currentColor 12%, transparent);
+.cc-widget .cc-syntax-button[aria-pressed="true"] {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.cc-widget .cc-syntax-button[aria-pressed="true"]:active {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary-container) 12%,
+    var(--md-sys-color-primary-container)
+  );
 }
 .cc-widget .cc-check {
   min-block-size: var(--cc-control-height);

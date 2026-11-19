@@ -39,6 +39,7 @@
     "@cloudflare/build-output-utils": "0.8.0",
     "@cloudflare/config": "0.18.0",
     "@cloudflare/workers-types": "^5.20261119.1",
+    "@iconify-json/simple-icons": "^1.2.100",
     "@types/hast": "^3.0.4",
     "@types/node": "^22.10.0",
     "esbuild": "^0.25.0",
