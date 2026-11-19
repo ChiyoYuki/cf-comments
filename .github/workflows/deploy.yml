@@ -1,0 +1,110 @@
+name: Check and deploy comments
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: comments-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Check source
+        run: |
+          pnpm run lint
+          pnpm run typecheck
+          pnpm run test
+      - name: Verify build
+        run: pnpm run build
+
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.CF_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: ${{ vars.CF_WORKER_NAME }}
+      CF_SITE_URL: ${{ vars.CF_SITE_URL }}
+      CF_ALLOWED_ORIGINS: ${{ vars.CF_ALLOWED_ORIGINS }}
+      CF_COMMENTS_DOMAIN: ${{ vars.CF_COMMENTS_DOMAIN }}
+      CF_D1_DATABASE_NAME: ${{ vars.CF_D1_DATABASE_NAME }}
+      CF_D1_DATABASE_ID: ${{ vars.CF_D1_DATABASE_ID }}
+      CF_MODERATION_MODE: ${{ vars.CF_MODERATION_MODE }}
+      CF_MAX_CONTENT_LENGTH: ${{ vars.CF_MAX_CONTENT_LENGTH }}
+      CF_GRAVATAR_ENABLED: ${{ vars.CF_GRAVATAR_ENABLED }}
+      CF_MISSKEY_INSTANCE_URL: ${{ vars.CF_MISSKEY_INSTANCE_URL }}
+      CF_TURNSTILE_SITE_KEY: ${{ vars.CF_TURNSTILE_SITE_KEY }}
+      CF_ADMIN_EMAIL_PROVIDER: ${{ vars.CF_ADMIN_EMAIL_PROVIDER }}
+      CF_REPLY_EMAIL_PROVIDER: ${{ vars.CF_REPLY_EMAIL_PROVIDER }}
+      CF_EMAIL_FROM: ${{ vars.CF_EMAIL_FROM }}
+      CF_ADMIN_NOTIFY_EMAIL: ${{ vars.CF_ADMIN_NOTIFY_EMAIL }}
+      CF_EMAIL_HTTP_ENDPOINT: ${{ vars.CF_EMAIL_HTTP_ENDPOINT }}
+    steps:
+      - name: Check production branch tip
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)
+          if [ "$current_sha" = "$GITHUB_SHA" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mask email settings in public logs
+        if: steps.tip.outputs.current == 'true'
+        run: |
+          for value in "$CF_EMAIL_FROM" "$CF_ADMIN_NOTIFY_EMAIL" "$CF_EMAIL_HTTP_ENDPOINT"; do
+            if [ -n "$value" ]; then
+              printf '::add-mask::%s\n' "$value"
+            fi
+          done
+      - uses: actions/checkout@v6
+        if: steps.tip.outputs.current == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        if: steps.tip.outputs.current == 'true'
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install dependencies and Cloudflare CLI
+        if: steps.tip.outputs.current == 'true'
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          npm install --global cf@0.15.0
+      - name: Check the existing production Worker
+        if: steps.tip.outputs.current == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/prepare-production.mjs
+      - name: Package the production Worker
+        if: steps.tip.outputs.current == 'true'
+        run: pnpm run build
+      - name: Deploy to Cloudflare
+        if: steps.tip.outputs.current == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: cf deploy --prebuilt --tag "$GITHUB_SHA"

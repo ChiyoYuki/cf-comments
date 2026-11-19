@@ -2,6 +2,7 @@
 
 ## 任务索引
 
+- [2026-11-19 — 接入 GitHub 自动发布](2026-11-19-worker-github-deployment.md)
 - [2026-11-19 — 整理评论子仓库结构与文档](2026-11-19-comments-repository-cleanup.md)
 - [2026-11-19 — 从开发依赖提取语法图标](2026-11-19-syntax-icon-dependency.md)
 - [2026-11-19 — 调整表单布局与语法图标按钮](2026-11-19-comment-syntax-icons.md)

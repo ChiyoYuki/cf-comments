@@ -10,6 +10,8 @@ Supports threaded discussions, GFM/MFM, moderation, reply notifications, and JSO
 2. Copy `.env.example` to `.dev.vars` for local secrets (ignored by Git).
 3. Run `pnpm install`, `pnpm run test`, and `pnpm run build`. Deployment requirements and configuration are listed in the [v1 specification](docs/spec.md).
 
+For GitHub Actions, see [Production deployment](docs/deployment.md).
+
 ## Browser Integration
 
 ```html
