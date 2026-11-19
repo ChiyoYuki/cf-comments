@@ -12,6 +12,7 @@
     "root_id": null,
     "is_placeholder": false,
     "placeholder_reason": null,
+    "syntax": "gfm",
     "author_name": "Alice",
     "author_url": "https://alice.example.com/",
     "avatar_hue": 214,

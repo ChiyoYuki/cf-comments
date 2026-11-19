@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://comments.chiyo.uk/schemas/export-v1.schema.json",
+  "$id": "https://comments.example.com/schemas/export-v1.schema.json",
   "title": "cf-comments Standard Export Format v1",
   "description": "Portable canonical JSON format for admin backups and cross-system comment migrations. Default exports (include_private=false) omit visitor emails but still include non-public moderation statuses and are NOT public-safe.",
   "type": "object",
@@ -29,7 +29,7 @@
     "site": {
       "type": "string",
       "format": "uri",
-      "description": "Optional origin site URL (e.g. https://blog.chiyo.uk)."
+      "description": "Optional origin site URL (e.g. https://blog.example.com)."
     },
     "include_private": {
       "type": "boolean",
@@ -116,6 +116,12 @@
           "type": "string",
           "enum": ["approved", "pending", "hidden", "spam", "deleted"],
           "description": "Moderation status."
+        },
+        "syntax": {
+          "type": "string",
+          "enum": ["gfm", "mfm"],
+          "default": "gfm",
+          "description": "Explicit per-comment markup syntax (defaults to gfm when omitted in legacy imports)."
         },
         "author_name": {
           "type": ["string", "null"],

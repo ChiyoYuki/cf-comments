@@ -12,6 +12,7 @@
       "avatar_hue": 64,
       "is_admin": false,
       "notify_on_reply": true,
+      "syntax": "gfm",
       "content_markdown": "待审评论测试 ![demo](https://images.example.com/demo.png)",
       "content_html": "<p>待审评论测试 <img src=\"https://images.example.com/demo.png\" alt=\"demo\" loading=\"lazy\" decoding=\"async\" referrerpolicy=\"no-referrer\" class=\"cc-img\"></p>",
       "import_source": null,

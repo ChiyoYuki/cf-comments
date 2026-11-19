@@ -7,8 +7,8 @@ info:
     Supports threaded comments, GFM + safe MFM rendering, pre/post moderation,
     double-opt-in reply email notifications, and canonical JSON import/export.
 servers:
-  - url: https://comments.chiyo.uk
-    description: Production Worker Custom Domain
+  - url: https://comments.example.com
+    description: Production Worker Custom Domain (configured via cf-comments.config.json)
   - url: http://localhost:8787
     description: Local cf dev server
 
@@ -160,7 +160,7 @@ paths:
   /v1/preview:
     post:
       tags: [Public]
-      summary: Render sanitized GFM + MFM HTML fragment preview using the server renderer
+      summary: Render sanitized GFM or MFM HTML fragment preview using the server renderer
       operationId: previewMarkdown
       requestBody:
         required: true
@@ -174,6 +174,8 @@ paths:
                 content:
                   type: string
                   maxLength: 10000
+                syntax:
+                  $ref: "#/components/schemas/CommentSyntax"
       responses:
         "200":
           description: Rendered sanitized HTML fragment (frontend wraps in .cc-md)
@@ -413,6 +415,8 @@ paths:
                 author_url:
                   type: [string, "null"]
                   maxLength: 512
+                syntax:
+                  $ref: "#/components/schemas/CommentSyntax"
                 content:
                   type: string
                   minLength: 1
@@ -610,6 +614,12 @@ components:
               type: object
               additionalProperties: true
 
+    CommentSyntax:
+      type: string
+      enum: [gfm, mfm]
+      default: gfm
+      description: Explicit per-comment syntax mode (pure official GFM or pure official mfm-js).
+
     PublicConfig:
       type: object
       required:
@@ -621,6 +631,7 @@ components:
         - allow_remote_images
         - allow_image_upload
         - reply_notify_enabled
+        - misskey_instance_url
         - markdown
         - turnstile_site_key
       properties:
@@ -629,7 +640,7 @@ components:
           example: "1"
         site_url:
           type: string
-          example: https://blog.chiyo.uk
+          example: https://blog.example.com
         moderation_mode:
           type: string
           enum: [pre, post]
@@ -648,10 +659,25 @@ components:
         reply_notify_enabled:
           type: boolean
           description: True when a visitor reply email provider (Resend/HTTP) is configured.
+        misskey_instance_url:
+          type: [string, "null"]
+          description: "Optional Misskey instance origin used for MFM @mention/#hashtag links and client-side direct :emoji: resolution (no server-side emoji cache)."
         markdown:
           type: object
-          required: [gfm, mfm, mfm_functions, max_nesting_depth]
+          required:
+            - syntax_modes
+            - default_syntax
+            - gfm
+            - mfm
+            - mfm_functions
+            - max_nesting_depth
           properties:
+            syntax_modes:
+              type: array
+              items:
+                $ref: "#/components/schemas/CommentSyntax"
+            default_syntax:
+              $ref: "#/components/schemas/CommentSyntax"
             gfm:
               type: boolean
               const: true
@@ -677,6 +703,7 @@ components:
         - root_id
         - is_placeholder
         - placeholder_reason
+        - syntax
         - author_name
         - author_url
         - avatar_hue
@@ -699,6 +726,8 @@ components:
         placeholder_reason:
           type: [string, "null"]
           enum: [hidden, deleted, null]
+        syntax:
+          $ref: "#/components/schemas/CommentSyntax"
         author_name:
           type: [string, "null"]
           description: Null for anonymous comments or placeholders.
@@ -795,6 +824,8 @@ components:
           type: boolean
           default: false
           description: Visitor explicit opt-in to receive reply email notifications (requires author_email and double opt-in verification).
+        syntax:
+          $ref: "#/components/schemas/CommentSyntax"
         content:
           type: string
           minLength: 1
@@ -843,6 +874,7 @@ components:
         - avatar_hue
         - is_admin
         - notify_on_reply
+        - syntax
         - content_markdown
         - content_html
         - import_source
@@ -872,6 +904,8 @@ components:
           type: boolean
         notify_on_reply:
           type: boolean
+        syntax:
+          $ref: "#/components/schemas/CommentSyntax"
         content_markdown:
           type: [string, "null"]
         content_html:
