@@ -41,7 +41,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   d1StagingDatabaseId: "",
   moderationMode: "pre",
   maxContentLength: 4000,
-  misskeyInstanceUrl: "",
+  misskeyInstanceUrl: "https://misskey.io",
   turnstileSiteKey: "",
   email: {
     adminProvider: "none",

@@ -8,7 +8,13 @@ export default defineConfig(({ mode }) => {
   const d1Id = isStaging ? cfg.d1StagingDatabaseId : cfg.d1DatabaseId;
   const domain = isStaging ? cfg.stagingDomain : cfg.commentsDomain;
   const allowedOrigins = isStaging
-    ? [...new Set([...cfg.allowedOrigins, "http://localhost:4321"])]
+    ? [
+        ...new Set([
+          ...cfg.allowedOrigins,
+          "http://localhost:4321",
+          "http://127.0.0.1:4321",
+        ]),
+      ]
     : cfg.allowedOrigins;
 
   return {
