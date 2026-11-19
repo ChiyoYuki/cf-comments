@@ -58,9 +58,17 @@ export default defineConfig(({ mode }) => {
         EMAIL_HTTP_ENDPOINT: bindings.text(cfg.email.httpEndpoint),
         ADMIN_TOKEN: bindings.secret(),
         TOKEN_SIGNING_SECRET: bindings.secret(),
-        TURNSTILE_SECRET_KEY: bindings.secret(),
-        RESEND_API_KEY: bindings.secret(),
-        EMAIL_HTTP_TOKEN: bindings.secret(),
+        ...(cfg.turnstileSiteKey
+          ? { TURNSTILE_SECRET_KEY: bindings.secret() }
+          : {}),
+        ...(cfg.email.adminProvider === "resend" ||
+        cfg.email.replyProvider === "resend"
+          ? { RESEND_API_KEY: bindings.secret() }
+          : {}),
+        ...(cfg.email.adminProvider === "http" ||
+        cfg.email.replyProvider === "http"
+          ? { EMAIL_HTTP_TOKEN: bindings.secret() }
+          : {}),
       },
     },
   };
