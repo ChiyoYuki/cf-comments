@@ -3,7 +3,7 @@ import {
   exportCanonicalFromDb,
   importCanonicalToDb,
 } from "../../importers/canonical.ts";
-import { renderMarkdown } from "../../markdown/index.ts";
+import { renderCommentContent } from "../../markdown/index.ts";
 import { decodeCursor, encodeCursor } from "../../shared/cursor.ts";
 import { AppError, jsonResponse } from "../../shared/errors.ts";
 import { computeAvatarHue, generateId } from "../../shared/id.ts";
@@ -19,7 +19,11 @@ import type {
 import { readJsonBody, requireAdminAuth } from "../auth.ts";
 import type { RuntimeConfig, WorkerEnv } from "../env.ts";
 import { toAdminComment } from "../tree.ts";
-import { deriveUnsubscribeToken, resolveCanonicalPath } from "./public.ts";
+import {
+  deriveUnsubscribeToken,
+  parseCommentSyntax,
+  resolveCanonicalPath,
+} from "./public.ts";
 
 const VALID_STATUSES = new Set<CommentStatus>([
   "approved",
@@ -187,7 +191,10 @@ export async function handleAdminCreateComment(
 
   const id = generateId();
   const now = new Date().toISOString();
-  const contentHtml = renderMarkdown(contentMarkdown);
+  const syntax = parseCommentSyntax(body.syntax);
+  const contentHtml = renderCommentContent(contentMarkdown, syntax, {
+    misskeyInstanceUrl: cfg.misskeyInstanceUrl,
+  });
   const avatarHue = computeAvatarHue(authorName);
   const origin = new URL(request.url).origin;
 
@@ -195,9 +202,9 @@ export async function handleAdminCreateComment(
     env.DB.prepare(
       `INSERT INTO comments
        (id, path, parent_id, root_id, status, author_name, author_email, author_url,
-        avatar_hue, is_admin, notify_on_reply, content_markdown, content_html,
+        avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, content_html,
         import_source, import_external_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?, 1, 0, ?, ?, NULL, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?, 1, 0, ?, ?, ?, NULL, NULL, ?, ?)`,
     ).bind(
       id,
       canonicalPath,
@@ -207,6 +214,7 @@ export async function handleAdminCreateComment(
       cfg.adminNotifyEmail,
       authorUrl,
       avatarHue,
+      syntax,
       contentMarkdown,
       contentHtml,
       now,
@@ -457,12 +465,16 @@ export async function handleAdminExport(
 export async function handleAdminImport(
   request: Request,
   env: WorkerEnv,
+  cfg: RuntimeConfig,
 ): Promise<Response> {
   requireAdminAuth(request, env);
   const url = new URL(request.url);
   const dryRun = url.searchParams.get("dry_run") === "true";
   const body = await readJsonBody<unknown>(request, 5 * 1024 * 1024);
 
-  const report = await importCanonicalToDb(env.DB, body, { dryRun });
+  const report = await importCanonicalToDb(env.DB, body, {
+    dryRun,
+    misskeyInstanceUrl: cfg.misskeyInstanceUrl,
+  });
   return jsonResponse(report, { headers: NO_STORE_HEADERS });
 }

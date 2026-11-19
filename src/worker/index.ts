@@ -90,7 +90,7 @@ async function routeApiRequest(
     } else if (pathname === "/v1/admin/export" && method === "GET") {
       response = await handleAdminExport(request, env, cfg);
     } else if (pathname === "/v1/admin/import" && method === "POST") {
-      response = await handleAdminImport(request, env);
+      response = await handleAdminImport(request, env, cfg);
     } else {
       const repliesMatch = pathname.match(/^\/v1\/comments\/([^/]+)\/replies$/);
       if (repliesMatch?.[1] && method === "GET") {

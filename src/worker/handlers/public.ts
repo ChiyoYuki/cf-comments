@@ -2,7 +2,7 @@ import { drainEmailOutbox, prepareEnqueueOutbox } from "../../email/outbox.ts";
 import {
   ALLOWED_MFM_FUNCTIONS,
   MFM_MAX_NESTING_DEPTH,
-  renderMarkdown,
+  renderCommentContent,
 } from "../../markdown/index.ts";
 import { decodeCursor } from "../../shared/cursor.ts";
 import { AppError, jsonResponse } from "../../shared/errors.ts";
@@ -19,6 +19,7 @@ import {
 } from "../../shared/path.ts";
 import type {
   CommentRow,
+  CommentSyntax,
   CreateCommentRequest,
   CreateCommentResponse,
   PublicConfig,
@@ -57,6 +58,20 @@ export async function deriveUnsubscribeToken(
   return { rawToken, tokenHash };
 }
 
+export function parseCommentSyntax(raw: unknown): CommentSyntax {
+  if (raw === undefined || raw === null || raw === "") {
+    return "gfm";
+  }
+  if (raw === "gfm" || raw === "mfm") {
+    return raw;
+  }
+  throw new AppError(
+    400,
+    "VALIDATION_ERROR",
+    "Field 'syntax' must be 'gfm' or 'mfm'.",
+  );
+}
+
 export function handleGetConfig(cfg: RuntimeConfig): Response {
   const body: PublicConfig = {
     version: "1",
@@ -67,7 +82,10 @@ export function handleGetConfig(cfg: RuntimeConfig): Response {
     allow_remote_images: true,
     allow_image_upload: false,
     reply_notify_enabled: cfg.replyEmailProvider !== "none",
+    misskey_instance_url: cfg.misskeyInstanceUrl,
     markdown: {
+      syntax_modes: ["gfm", "mfm"],
+      default_syntax: "gfm",
       gfm: true,
       mfm: true,
       mfm_functions: ALLOWED_MFM_FUNCTIONS,
@@ -204,7 +222,9 @@ export async function handlePreview(
   cfg: RuntimeConfig,
 ): Promise<Response> {
   await enforceRateLimit(request, env, cfg, "preview");
-  const body = await readJsonBody<{ content?: unknown }>(request);
+  const body = await readJsonBody<{ content?: unknown; syntax?: unknown }>(
+    request,
+  );
   if (typeof body.content !== "string") {
     throw new AppError(
       400,
@@ -219,7 +239,10 @@ export async function handlePreview(
       `Content exceeds maximum length of ${cfg.maxContentLength} characters.`,
     );
   }
-  const html = renderMarkdown(body.content);
+  const syntax = parseCommentSyntax(body.syntax);
+  const html = renderCommentContent(body.content, syntax, {
+    misskeyInstanceUrl: cfg.misskeyInstanceUrl,
+  });
   return jsonResponse({ html });
 }
 
@@ -290,6 +313,7 @@ export async function handleCreateComment(
   const authorEmail = normalizeEmail(body.author_email);
   const authorUrl = normalizeHttpUrl(body.author_url);
   const notifyOnReply = Boolean(body.notify_on_reply && authorEmail);
+  const syntax = parseCommentSyntax(body.syntax);
 
   let parentId: string | null = null;
   let rootId: string | null = null;
@@ -345,7 +369,9 @@ export async function handleCreateComment(
   const now = new Date().toISOString();
   const id = generateId();
   const status = cfg.moderationMode === "post" ? "approved" : "pending";
-  const contentHtml = renderMarkdown(contentMarkdown);
+  const contentHtml = renderCommentContent(contentMarkdown, syntax, {
+    misskeyInstanceUrl: cfg.misskeyInstanceUrl,
+  });
   const avatarHue = computeAvatarHue(authorName);
   const origin = new URL(request.url).origin;
 
@@ -353,9 +379,9 @@ export async function handleCreateComment(
     env.DB.prepare(
       `INSERT INTO comments
        (id, path, parent_id, root_id, status, author_name, author_email, author_url,
-        avatar_hue, is_admin, notify_on_reply, content_markdown, content_html,
+        avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, content_html,
         import_source, import_external_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
     ).bind(
       id,
       canonicalPath,
@@ -367,6 +393,7 @@ export async function handleCreateComment(
       authorUrl,
       avatarHue,
       notifyOnReply ? 1 : 0,
+      syntax,
       contentMarkdown,
       contentHtml,
       now,
@@ -504,6 +531,7 @@ export async function handleCreateComment(
       avatar_hue: avatarHue,
       is_admin: 0,
       notify_on_reply: notifyOnReply ? 1 : 0,
+      syntax,
       content_markdown: contentMarkdown,
       content_html: contentHtml,
       import_source: null,

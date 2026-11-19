@@ -1,4 +1,4 @@
-import { renderMarkdown } from "../markdown/index.ts";
+import { renderCommentContent } from "../markdown/index.ts";
 import { AppError } from "../shared/errors.ts";
 import { computeAvatarHue } from "../shared/id.ts";
 import {
@@ -10,6 +10,7 @@ import type {
   CanonicalExport,
   CommentRow,
   CommentStatus,
+  CommentSyntax,
   ExportComment,
   ExportPathAlias,
   ImportReport,
@@ -130,6 +131,18 @@ export function validateCanonicalExport(raw: unknown): CanonicalExport {
       );
     }
     const status = c.status as CommentStatus;
+
+    let syntax: CommentSyntax = "gfm";
+    if (c.syntax !== undefined) {
+      if (c.syntax !== "gfm" && c.syntax !== "mfm") {
+        throw new AppError(
+          400,
+          "VALIDATION_ERROR",
+          `comments[${i}].syntax must be 'gfm' or 'mfm'.`,
+        );
+      }
+      syntax = c.syntax;
+    }
 
     if (typeof c.is_admin !== "boolean") {
       throw new AppError(
@@ -252,6 +265,7 @@ export function validateCanonicalExport(raw: unknown): CanonicalExport {
       path: normalizedPath,
       parent_id: c.parent_id,
       status,
+      syntax,
       author_name: status === "deleted" ? null : authorName,
       author_url: status === "deleted" ? null : authorUrl,
       ...(includePrivate
@@ -329,6 +343,7 @@ export async function exportCanonicalFromDb(
       path: row.path,
       parent_id: row.parent_id,
       status: row.status,
+      syntax: row.syntax,
       author_name: row.author_name,
       author_url: row.author_url,
       is_admin: row.is_admin === 1,
@@ -365,7 +380,7 @@ export async function exportCanonicalFromDb(
 export async function importCanonicalToDb(
   db: D1Database,
   rawPayload: unknown,
-  options: { dryRun: boolean },
+  options: { dryRun: boolean; misskeyInstanceUrl?: string | null },
 ): Promise<ImportReport> {
   const payload = validateCanonicalExport(rawPayload);
   const warnings: string[] = [];
@@ -509,10 +524,13 @@ export async function importCanonicalToDb(
     }
 
     const rootId = resolvedRootId.get(c.id) ?? null;
+    const syntax: CommentSyntax = c.syntax ?? "gfm";
     const html =
       c.status === "deleted" || !c.content_markdown
         ? null
-        : renderMarkdown(c.content_markdown);
+        : renderCommentContent(c.content_markdown, syntax, {
+            misskeyInstanceUrl: options.misskeyInstanceUrl,
+          });
     const avatarHue = computeAvatarHue(c.author_name ?? null);
     const importSource = c.source?.system ?? "canonical";
     const importExternalId = c.source?.external_id ?? c.id;
@@ -523,9 +541,9 @@ export async function importCanonicalToDb(
         .prepare(
           `INSERT INTO comments
            (id, path, parent_id, root_id, status, author_name, author_email, author_url,
-            avatar_hue, is_admin, notify_on_reply, content_markdown, content_html,
+            avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, content_html,
             import_source, import_external_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           c.id,
@@ -538,6 +556,7 @@ export async function importCanonicalToDb(
           c.author_url ?? null,
           avatarHue,
           c.is_admin ? 1 : 0,
+          syntax,
           c.content_markdown,
           html,
           importSource,

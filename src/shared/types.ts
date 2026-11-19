@@ -5,6 +5,8 @@ export type CommentStatus =
   | "spam"
   | "deleted";
 
+export type CommentSyntax = "gfm" | "mfm";
+
 export type PlaceholderReason = "hidden" | "deleted";
 
 export type ModerationMode = "pre" | "post";
@@ -52,7 +54,10 @@ export interface PublicConfig {
   allow_remote_images: true;
   allow_image_upload: false;
   reply_notify_enabled: boolean;
+  misskey_instance_url: string | null;
   markdown: {
+    syntax_modes: readonly CommentSyntax[];
+    default_syntax: CommentSyntax;
     gfm: true;
     mfm: true;
     mfm_functions: readonly string[];
@@ -68,6 +73,7 @@ export interface PublicComment {
   root_id: string | null;
   is_placeholder: boolean;
   placeholder_reason: PlaceholderReason | null;
+  syntax: CommentSyntax;
   author_name: string | null;
   author_url: string | null;
   avatar_hue: number | null;
@@ -104,6 +110,7 @@ export interface CreateCommentRequest {
   author_email?: string | null;
   author_url?: string | null;
   notify_on_reply?: boolean;
+  syntax?: CommentSyntax;
   content: string;
   honeypot?: string | null;
   turnstile_token?: string | null;
@@ -131,6 +138,7 @@ export interface AdminComment {
   avatar_hue: number;
   is_admin: boolean;
   notify_on_reply: boolean;
+  syntax: CommentSyntax;
   content_markdown: string | null;
   content_html: string | null;
   import_source: string | null;
@@ -162,6 +170,7 @@ export interface AdminCreateCommentRequest {
   parent_id?: string | null;
   author_name?: string;
   author_url?: string | null;
+  syntax?: CommentSyntax;
   content: string;
 }
 
@@ -175,6 +184,7 @@ export interface ExportComment {
   path: string;
   parent_id: string | null;
   status: CommentStatus;
+  syntax?: CommentSyntax;
   author_name?: string | null;
   author_url?: string | null;
   author_email?: string | null;
@@ -219,6 +229,7 @@ export interface CommentRow {
   avatar_hue: number;
   is_admin: number;
   notify_on_reply: number;
+  syntax: CommentSyntax;
   content_markdown: string | null;
   content_html: string | null;
   import_source: string | null;

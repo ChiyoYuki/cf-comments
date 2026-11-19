@@ -1,14 +1,29 @@
+import type { Element, ElementContent, Root } from "hast";
+import * as mfm from "mfm-js";
+import rehypeSanitize from "rehype-sanitize";
+import rehypeStringify from "rehype-stringify";
+import { unified } from "unified";
+import {
+  isSafeHttpUrl,
+  mfmSanitizeSchema,
+  rehypeHardenNodes,
+} from "./sanitize-schema.ts";
+
 export const ALLOWED_MFM_FUNCTIONS = [
   "blur",
   "fg",
   "bg",
   "font",
   "x2",
+  "x3",
+  "x4",
+  "position",
   "flip",
   "rotate",
   "scale",
   "border",
   "ruby",
+  "unixtime",
   "tada",
   "jelly",
   "shake",
@@ -20,12 +35,12 @@ export const ALLOWED_MFM_FUNCTIONS = [
   "sparkle",
 ] as const;
 
-export type MfmFunctionName = (typeof ALLOWED_MFM_FUNCTIONS)[number];
-
 export const MFM_MAX_NESTING_DEPTH = 4;
 
-const ALLOWED_SET = new Set<string>(ALLOWED_MFM_FUNCTIONS);
-const ANIM_SET = new Set<string>([
+const HEX_COLOR_RE = /^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/;
+const FONT_FAMILIES = new Set(["serif", "monospace", "cursive", "fantasy"]);
+const BORDER_STYLES = new Set(["solid", "dashed", "dotted", "double"]);
+const ANIM_FUNCTIONS = new Set([
   "tada",
   "jelly",
   "shake",
@@ -36,24 +51,15 @@ const ANIM_SET = new Set<string>([
   "rainbow",
   "sparkle",
 ]);
-const HEX_COLOR_RE = /^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/;
-const FONT_FAMILIES = new Set(["serif", "monospace", "cursive", "fantasy"]);
-const BORDER_STYLES = new Set(["solid", "dashed", "dotted", "double"]);
 
-export interface ParsedMfmMatch {
-  raw: string;
-  fn: MfmFunctionName;
-  args: Record<string, string | true>;
-  body: string;
+export interface MfmRenderOptions {
+  misskeyInstanceUrl?: string | null;
 }
 
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+interface WalkContext {
+  misskeyOrigin: string | null;
+  inSizeScale: boolean;
+  animDepth: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -87,145 +93,337 @@ function parseNumber(
   return Number(clamp(num, min, max).toFixed(3));
 }
 
-function parseArgs(rawArgs: string | undefined): Record<string, string | true> {
-  const result: Record<string, string | true> = {};
-  if (!rawArgs) return result;
-  for (const part of rawArgs.split(",")) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx === -1) {
-      result[trimmed] = true;
-    } else {
-      const key = trimmed.slice(0, eqIdx).trim();
-      const val = trimmed.slice(eqIdx + 1).trim();
-      if (key) {
-        result[key] = val;
-      }
+function textWithBreaks(text: string): ElementContent[] {
+  const lines = text.split("\n");
+  const out: ElementContent[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line) {
+      out.push({ type: "text", value: line });
+    }
+    if (i < lines.length - 1) {
+      out.push({
+        type: "element",
+        tagName: "br",
+        properties: {},
+        children: [],
+      });
     }
   }
-  return result;
+  return out;
+}
+
+function el(
+  tagName: string,
+  properties: Element["properties"],
+  children: ElementContent[],
+): Element {
+  return { type: "element", tagName, properties, children };
 }
 
 /**
- * Scan balanced `$[fn(.args)? body]` starting at index 0 of `src`.
- * Respects nested `[` / `]` and inline backtick code spans inside the body.
+ * Pure official `mfm-js` parser + HAST mapper + official `rehype-sanitize` pipeline.
+ * - Zero custom MFM grammar parsing (delegated 100% to `mfm-js`).
+ * - No KaTeX rendering (`mathInline`/`mathBlock` output safe literal code elements).
+ * - No search form rendering (`search` outputs original plain text).
+ * - No server-side emoji cache/fetch (`emojiCode` emits `<span class="mfm-emoji" data-emoji="...">` when `misskeyInstanceUrl` is set).
+ * - `$[position]` allowed (contained by `.cc-md { overflow: hidden }`).
+ * - `$[x2]` / `$[x3]` / `$[x4]` all allowed with nested magnification disabled.
  */
-export function matchMfmFunction(src: string): ParsedMfmMatch | null {
-  if (!src.startsWith("$[")) return null;
-  const headerMatch = src.match(
-    /^\$\[([a-z][a-z0-9]*)(?:\.([a-zA-Z0-9_,=.-]+))? /,
-  );
-  if (!headerMatch?.[1]) return null;
+export class MfmRenderer {
+  private readonly serializer = unified()
+    .use(rehypeSanitize, mfmSanitizeSchema)
+    .use(rehypeHardenNodes)
+    .use(rehypeStringify);
 
-  const fn = headerMatch[1];
-  if (!ALLOWED_SET.has(fn)) return null;
+  render(input: string, options: MfmRenderOptions = {}): string {
+    const misskeyOrigin = options.misskeyInstanceUrl
+      ? (isSafeHttpUrl(options.misskeyInstanceUrl)?.replace(/\/$/, "") ?? null)
+      : null;
 
-  const startBody = headerMatch[0].length;
-  let depth = 1;
-  let i = startBody;
-  let inBacktickLen = 0;
+    const ast = mfm.parse(input, { nestLimit: 10 });
+    const ctx: WalkContext = {
+      misskeyOrigin,
+      inSizeScale: false,
+      animDepth: 0,
+    };
 
-  while (i < src.length) {
-    const ch = src[i];
-    if (ch === "\\" && inBacktickLen === 0) {
-      i += 2;
-      continue;
-    }
-    if (ch === "`") {
-      let run = 1;
-      while (i + run < src.length && src[i + run] === "`") {
-        run++;
-      }
-      if (inBacktickLen === 0) {
-        inBacktickLen = run;
-      } else if (inBacktickLen === run) {
-        inBacktickLen = 0;
-      }
-      i += run;
-      continue;
-    }
-    if (inBacktickLen === 0) {
-      if (ch === "[") {
-        depth++;
-      } else if (ch === "]") {
-        depth--;
-        if (depth === 0) {
-          const body = src.slice(startBody, i);
-          if (!body) return null;
-          return {
-            raw: src.slice(0, i + 1),
-            fn: fn as MfmFunctionName,
-            args: parseArgs(headerMatch[2]),
-            body,
-          };
-        }
-      }
-    }
-    i++;
+    const hastChildren = this.mapNodes(ast, ctx);
+    const root: Root = { type: "root", children: hastChildren };
+    const sanitized = this.serializer.runSync(root);
+    return String(this.serializer.stringify(sanitized)).trim();
   }
 
-  return null;
-}
+  private mapNodes(nodes: mfm.MfmNode[], ctx: WalkContext): ElementContent[] {
+    const out: ElementContent[] = [];
+    for (const node of nodes) {
+      out.push(...this.mapNode(node, ctx));
+    }
+    return out;
+  }
 
-export function renderMfmHtml(
-  fn: MfmFunctionName,
-  args: Record<string, string | true>,
-  renderedBody: string,
-  rawBody: string,
-  renderInline: (text: string) => string,
-): string {
-  switch (fn) {
-    case "blur":
-      return `<span class="mfm-blur">${renderedBody}</span>`;
+  private mapNode(node: mfm.MfmNode, ctx: WalkContext): ElementContent[] {
+    switch (node.type) {
+      case "text":
+        return textWithBreaks(node.props.text);
 
-    case "x2":
-      return `<span class="mfm-x2">${renderedBody}</span>`;
+      case "plain":
+        return node.children.flatMap((child) =>
+          textWithBreaks(child.props.text),
+        );
 
-    case "fg": {
+      case "unicodeEmoji":
+        return [{ type: "text", value: node.props.emoji }];
+
+      case "emojiCode": {
+        const name = node.props.name;
+        const literal = `:${name}:`;
+        if (!ctx.misskeyOrigin || !/^[a-zA-Z0-9_+-]+$/.test(name)) {
+          return [{ type: "text", value: literal }];
+        }
+        return [
+          el("span", { className: ["mfm-emoji"], dataEmoji: name }, [
+            { type: "text", value: literal },
+          ]),
+        ];
+      }
+
+      case "bold":
+        return [el("strong", {}, this.mapNodes(node.children, ctx))];
+
+      case "italic":
+        return [el("em", {}, this.mapNodes(node.children, ctx))];
+
+      case "strike":
+        return [el("del", {}, this.mapNodes(node.children, ctx))];
+
+      case "small":
+        return [
+          el(
+            "small",
+            { className: ["mfm-small"] },
+            this.mapNodes(node.children, ctx),
+          ),
+        ];
+
+      case "center":
+        return [
+          el(
+            "div",
+            { className: ["mfm-center"] },
+            this.mapNodes(node.children, ctx),
+          ),
+        ];
+
+      case "quote":
+        return [el("blockquote", {}, this.mapNodes(node.children, ctx))];
+
+      case "inlineCode":
+        return [el("code", {}, [{ type: "text", value: node.props.code }])];
+
+      case "blockCode": {
+        const lang = node.props.lang?.trim();
+        const codeProps: Element["properties"] =
+          lang && /^[a-zA-Z0-9_-]+$/.test(lang)
+            ? { className: [`language-${lang}`] }
+            : {};
+        return [
+          el("pre", {}, [
+            el("code", codeProps, [{ type: "text", value: node.props.code }]),
+          ]),
+        ];
+      }
+
+      case "mathInline":
+        return [
+          el("code", { className: ["mfm-math-inline"] }, [
+            { type: "text", value: node.props.formula },
+          ]),
+        ];
+
+      case "mathBlock":
+        return [
+          el("pre", { className: ["mfm-math-block"] }, [
+            el("code", {}, [{ type: "text", value: node.props.formula }]),
+          ]),
+        ];
+
+      case "search":
+        // Explicitly do NOT render search forms; preserve original text
+        return textWithBreaks(node.props.content);
+
+      case "url": {
+        const safeUrl = isSafeHttpUrl(node.props.url);
+        if (!safeUrl) {
+          return [{ type: "text", value: node.props.url }];
+        }
+        return [
+          el("a", { href: safeUrl, className: ["mfm-url"] }, [
+            { type: "text", value: node.props.url },
+          ]),
+        ];
+      }
+
+      case "link": {
+        const safeUrl = isSafeHttpUrl(node.props.url);
+        const children = this.mapNodes(node.children, ctx);
+        if (!safeUrl) {
+          return children;
+        }
+        return [el("a", { href: safeUrl, className: ["mfm-link"] }, children)];
+      }
+
+      case "mention": {
+        const { username, host, acct } = node.props;
+        if (!ctx.misskeyOrigin) {
+          return [{ type: "text", value: acct }];
+        }
+        const target = host
+          ? `${ctx.misskeyOrigin}/@${encodeURIComponent(username)}@${encodeURIComponent(host)}`
+          : `${ctx.misskeyOrigin}/@${encodeURIComponent(username)}`;
+        return [
+          el("a", { href: target, className: ["mfm-mention"] }, [
+            { type: "text", value: acct },
+          ]),
+        ];
+      }
+
+      case "hashtag": {
+        const tag = node.props.hashtag;
+        const label = `#${tag}`;
+        if (!ctx.misskeyOrigin) {
+          return [{ type: "text", value: label }];
+        }
+        const target = `${ctx.misskeyOrigin}/tags/${encodeURIComponent(tag)}`;
+        return [
+          el("a", { href: target, className: ["mfm-hashtag"] }, [
+            { type: "text", value: label },
+          ]),
+        ];
+      }
+
+      case "fn":
+        return this.mapFnNode(node, ctx);
+    }
+  }
+
+  private mapFnNode(node: mfm.MfmFn, ctx: WalkContext): ElementContent[] {
+    const { name, args } = node.props;
+
+    if (name === "x2" || name === "x3" || name === "x4") {
+      // Allow x2, x3, x4 without upper cap, but prevent nested magnification
+      if (ctx.inSizeScale) {
+        return this.mapNodes(node.children, ctx);
+      }
+      const childCtx: WalkContext = { ...ctx, inSizeScale: true };
+      return [
+        el(
+          "span",
+          { className: ["mfm-size", `mfm-${name}`] },
+          this.mapNodes(node.children, childCtx),
+        ),
+      ];
+    }
+
+    if (name === "position") {
+      const px = parseNumber(args.x, 0, -10, 10);
+      const py = parseNumber(args.y, 0, -10, 10);
+      return [
+        el(
+          "span",
+          {
+            className: ["mfm-position"],
+            style: `--mfm-px:${px}em;--mfm-py:${py}em`,
+          },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
+    }
+
+    if (name === "blur") {
+      return [
+        el(
+          "span",
+          { className: ["mfm-blur"] },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
+    }
+
+    if (name === "fg") {
       const color = typeof args.color === "string" ? args.color.trim() : "";
-      if (!HEX_COLOR_RE.test(color)) {
-        return `<span class="mfm-fg">${renderedBody}</span>`;
-      }
-      return `<span class="mfm-fg" style="color:#${color.toLowerCase()}">${renderedBody}</span>`;
+      const style = HEX_COLOR_RE.test(color)
+        ? `color:#${color.toLowerCase()}`
+        : undefined;
+      return [
+        el(
+          "span",
+          { className: ["mfm-fg"], ...(style ? { style } : {}) },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
     }
 
-    case "bg": {
+    if (name === "bg") {
       const color = typeof args.color === "string" ? args.color.trim() : "";
-      if (!HEX_COLOR_RE.test(color)) {
-        return `<span class="mfm-bg">${renderedBody}</span>`;
-      }
-      return `<span class="mfm-bg" style="background-color:#${color.toLowerCase()}">${renderedBody}</span>`;
+      const style = HEX_COLOR_RE.test(color)
+        ? `background-color:#${color.toLowerCase()}`
+        : undefined;
+      return [
+        el(
+          "span",
+          { className: ["mfm-bg"], ...(style ? { style } : {}) },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
     }
 
-    case "font": {
-      const family = Object.keys(args).find((k) => FONT_FAMILIES.has(k));
-      if (!family) {
-        return `<span class="mfm-font-serif">${renderedBody}</span>`;
-      }
-      return `<span class="mfm-font-${family}">${renderedBody}</span>`;
+    if (name === "font") {
+      const family =
+        Object.keys(args).find((k) => FONT_FAMILIES.has(k)) ?? "serif";
+      return [
+        el(
+          "span",
+          { className: [`mfm-font-${family}`] },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
     }
 
-    case "flip": {
+    if (name === "flip") {
       const hasH = args.h === true;
       const hasV = args.v === true;
       const cls =
         hasH && hasV ? "mfm-flip-hv" : hasV ? "mfm-flip-v" : "mfm-flip-h";
-      return `<span class="${cls}">${renderedBody}</span>`;
+      return [
+        el("span", { className: [cls] }, this.mapNodes(node.children, ctx)),
+      ];
     }
 
-    case "rotate": {
+    if (name === "rotate") {
       const deg = parseNumber(args.deg, 90, -360, 360);
-      return `<span class="mfm-rotate" style="--mfm-deg:${deg}deg">${renderedBody}</span>`;
+      return [
+        el(
+          "span",
+          { className: ["mfm-rotate"], style: `--mfm-deg:${deg}deg` },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
     }
 
-    case "scale": {
+    if (name === "scale") {
       const sx = parseNumber(args.x, 1, 0.5, 2);
       const sy = parseNumber(args.y, 1, 0.5, 2);
-      return `<span class="mfm-scale" style="--mfm-sx:${sx};--mfm-sy:${sy}">${renderedBody}</span>`;
+      return [
+        el(
+          "span",
+          { className: ["mfm-scale"], style: `--mfm-sx:${sx};--mfm-sy:${sy}` },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
     }
 
-    case "border": {
+    if (name === "border") {
       const styleArg =
         typeof args.style === "string" && BORDER_STYLES.has(args.style)
           ? args.style
@@ -236,28 +434,78 @@ export function renderMfmHtml(
       const color = HEX_COLOR_RE.test(colorRaw)
         ? `#${colorRaw.toLowerCase()}`
         : "currentColor";
-      return `<span class="mfm-border" style="--mfm-border-style:${styleArg};--mfm-border-width:${width}px;--mfm-border-radius:${radius}px;--mfm-border-color:${color}">${renderedBody}</span>`;
+      return [
+        el(
+          "span",
+          {
+            className: ["mfm-border"],
+            style: `--mfm-border-style:${styleArg};--mfm-border-width:${width}px;--mfm-border-radius:${radius}px;--mfm-border-color:${color}`,
+          },
+          this.mapNodes(node.children, ctx),
+        ),
+      ];
     }
 
-    case "ruby": {
-      const spaceIdx = rawBody.search(/\s+/);
+    if (name === "ruby") {
+      const raw = mfm.toString(node.children);
+      const spaceIdx = raw.search(/\s+/);
       if (spaceIdx === -1) {
-        return `<ruby class="mfm-ruby">${renderedBody}</ruby>`;
+        return [
+          el(
+            "ruby",
+            { className: ["mfm-ruby"] },
+            this.mapNodes(node.children, ctx),
+          ),
+        ];
       }
-      const baseText = rawBody.slice(0, spaceIdx);
-      const rtText = rawBody.slice(spaceIdx).trim();
-      return `<ruby class="mfm-ruby">${renderInline(baseText)}<rt>${escapeHtml(rtText)}</rt></ruby>`;
+      const baseAst = mfm.parse(raw.slice(0, spaceIdx), { nestLimit: 4 });
+      const rtText = raw.slice(spaceIdx).trim();
+      return [
+        el("ruby", { className: ["mfm-ruby"] }, [
+          ...this.mapNodes(baseAst, ctx),
+          el("rt", {}, [{ type: "text", value: rtText }]),
+        ]),
+      ];
     }
 
-    default: {
-      if (!ANIM_SET.has(fn)) {
-        return renderedBody;
+    if (name === "unixtime") {
+      const rawSec = mfm.toString(node.children).trim();
+      if (!/^-?\d{1,12}$/.test(rawSec)) {
+        return [{ type: "text", value: mfm.toString(node) }];
       }
-      const defaultSpeed = fn === "spin" ? 1.5 : 1;
+      const sec = Number.parseInt(rawSec, 10);
+      const dt = new Date(sec * 1000);
+      if (Number.isNaN(dt.getTime())) {
+        return [{ type: "text", value: mfm.toString(node) }];
+      }
+      const iso = dt.toISOString();
+      return [
+        el(
+          "time",
+          {
+            className: ["mfm-unixtime"],
+            dateTime: iso,
+            dataUnixtime: String(sec),
+          },
+          [
+            {
+              type: "text",
+              value: iso.replace("T", " ").replace(".000Z", " UTC"),
+            },
+          ],
+        ),
+      ];
+    }
+
+    if (ANIM_FUNCTIONS.has(name)) {
+      if (ctx.animDepth >= MFM_MAX_NESTING_DEPTH) {
+        return [{ type: "text", value: mfm.toString(node) }];
+      }
+      const defaultSpeed = name === "spin" ? 1.5 : 1;
       const speed = parseSeconds(args.speed, defaultSpeed, 0.4, 10);
       const delay = parseSeconds(args.delay, 0, 0, 5);
-      const classes = ["mfm-anim", `mfm-${fn}`];
-      if (fn === "spin") {
+      const classes = ["mfm-anim", `mfm-${name}`];
+      if (name === "spin") {
         if (args.x === true) {
           classes.push("mfm-spin-x");
         } else if (args.y === true) {
@@ -270,7 +518,20 @@ export function renderMfmHtml(
           classes.push("mfm-spin-alternate");
         }
       }
-      return `<span class="${classes.join(" ")}" style="--mfm-speed:${speed}s;--mfm-delay:${delay}s">${renderedBody}</span>`;
+      const childCtx: WalkContext = { ...ctx, animDepth: ctx.animDepth + 1 };
+      return [
+        el(
+          "span",
+          {
+            className: classes,
+            style: `--mfm-speed:${speed}s;--mfm-delay:${delay}s`,
+          },
+          this.mapNodes(node.children, childCtx),
+        ),
+      ];
     }
+
+    // Unknown MFM function: render literal text via official mfm.toString
+    return [{ type: "text", value: mfm.toString(node) }];
   }
 }

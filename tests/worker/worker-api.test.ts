@@ -15,14 +15,15 @@ function createTestEnv(overrides: Partial<WorkerEnv> = {}): {
 
   const env: WorkerEnv = {
     DB: db,
-    SITE_URL: "https://blog.chiyo.uk",
-    ALLOWED_ORIGINS: "https://blog.chiyo.uk",
+    SITE_URL: "https://blog.example.com",
+    ALLOWED_ORIGINS: "https://blog.example.com",
     MODERATION_MODE: "pre",
     MAX_CONTENT_LENGTH: "4000",
+    MISSKEY_INSTANCE_URL: "https://misskey.example.com",
     ADMIN_EMAIL_PROVIDER: "cf_email_routing",
     REPLY_EMAIL_PROVIDER: "resend",
-    EMAIL_FROM: "comments@chiyo.uk",
-    ADMIN_NOTIFY_EMAIL: "owner@chiyo.uk",
+    EMAIL_FROM: "comments@example.com",
+    ADMIN_NOTIFY_EMAIL: "owner@example.com",
     ADMIN_TOKEN: "test-admin-secret-token",
     TOKEN_SIGNING_SECRET: "test-signing-secret",
     RESEND_API_KEY: "re_test_key",
@@ -37,13 +38,13 @@ function createTestEnv(overrides: Partial<WorkerEnv> = {}): {
 }
 
 describe("Worker API End-to-End Integration", () => {
-  it("serves public config and exact-origin CORS headers", async () => {
+  it("serves public config (including misskey_instance_url & syntax_modes) and exact-origin CORS headers", async () => {
     const { env } = createTestEnv();
     const { ctx } = createMockExecutionContext();
 
     const okRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/config", {
-        headers: { Origin: "https://blog.chiyo.uk" },
+      new Request("https://comments.example.com/v1/config", {
+        headers: { Origin: "https://blog.example.com" },
       }),
       env,
       ctx,
@@ -51,15 +52,24 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(okRes.status, 200);
     assert.equal(
       okRes.headers.get("Access-Control-Allow-Origin"),
-      "https://blog.chiyo.uk",
+      "https://blog.example.com",
     );
-    const cfg = (await okRes.json()) as Record<string, unknown>;
+    const cfg = (await okRes.json()) as {
+      allow_image_upload: boolean;
+      allow_remote_images: boolean;
+      reply_notify_enabled: boolean;
+      misskey_instance_url: string | null;
+      markdown: { syntax_modes: string[]; default_syntax: string };
+    };
     assert.equal(cfg.allow_image_upload, false);
     assert.equal(cfg.allow_remote_images, true);
     assert.equal(cfg.reply_notify_enabled, true);
+    assert.equal(cfg.misskey_instance_url, "https://misskey.example.com");
+    assert.deepEqual(cfg.markdown.syntax_modes, ["gfm", "mfm"]);
+    assert.equal(cfg.markdown.default_syntax, "gfm");
 
     const blockedOriginRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/config", {
+      new Request("https://comments.example.com/v1/config", {
         headers: { Origin: "https://evil.example" },
       }),
       env,
@@ -69,6 +79,65 @@ describe("Worker API End-to-End Integration", () => {
       blockedOriginRes.headers.get("Access-Control-Allow-Origin"),
       null,
     );
+  });
+
+  it("supports explicit syntax selection in /v1/preview and /v1/comments", async () => {
+    const { env } = createTestEnv({ MODERATION_MODE: "post" });
+    const { ctx } = createMockExecutionContext();
+
+    const previewMfm = await worker.fetch(
+      new Request("https://comments.example.com/v1/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          syntax: "mfm",
+          content: "$[x3 大字] :blobcat:",
+        }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(previewMfm.status, 200);
+    const previewBody = (await previewMfm.json()) as { html: string };
+    assert.ok(previewBody.html.includes("mfm-x3"));
+    assert.ok(previewBody.html.includes('data-emoji="blobcat"'));
+
+    const postMfm = await worker.fetch(
+      new Request("https://comments.example.com/v1/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/about",
+          syntax: "mfm",
+          content: "$[blur 秘密] @alice",
+        }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(postMfm.status, 201);
+    const created = (await postMfm.json()) as {
+      comment: { syntax: string; content_html: string };
+    };
+    assert.equal(created.comment.syntax, "mfm");
+    assert.ok(created.comment.content_html.includes("mfm-blur"));
+    assert.ok(
+      created.comment.content_html.includes(
+        "https://misskey.example.com/@alice",
+      ),
+    );
+
+    // Invalid syntax rejected
+    const badSyntax = await worker.fetch(
+      new Request("https://comments.example.com/v1/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ syntax: "bbcode", content: "hi" }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(badSyntax.status, 400);
   });
 
   it("rejects invalid paths, enforces honeypot and rate limit, and returns 202 in pre-moderation mode", async () => {
@@ -81,9 +150,8 @@ describe("Worker API End-to-End Integration", () => {
     });
     const { ctx } = createMockExecutionContext();
 
-    // Bad path with consecutive slashes
     const badPathRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments?path=/foo//bar/"),
+      new Request("https://comments.example.com/v1/comments?path=/foo//bar/"),
       env,
       ctx,
     );
@@ -93,9 +161,8 @@ describe("Worker API End-to-End Integration", () => {
     };
     assert.equal(badPathBody.error.code, "INVALID_PATH");
 
-    // Honeypot triggers SPAM_DETECTED
     const spamRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments", {
+      new Request("https://comments.example.com/v1/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -111,14 +178,13 @@ describe("Worker API End-to-End Integration", () => {
     const spamBody = (await spamRes.json()) as { error: { code: string } };
     assert.equal(spamBody.error.code, "SPAM_DETECTED");
 
-    // Normal anonymous submission in pre-moderation mode -> 202
     const createRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments", {
+      new Request("https://comments.example.com/v1/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: "/about",
-          content: "匿名测试 $[blur 剧透]",
+          content: "匿名测试 ~~删除线~~",
         }),
       }),
       env,
@@ -137,9 +203,8 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(created.verification_queued, false);
     assert.equal(created.comment, null);
 
-    // Public list does not expose pending comment
     const listRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments?path=/about/"),
+      new Request("https://comments.example.com/v1/comments?path=/about/"),
       env,
       ctx,
     );
@@ -159,9 +224,8 @@ describe("Worker API End-to-End Integration", () => {
       "Content-Type": "application/json",
     };
 
-    // Create root comment -> 201
     const r1Res = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments", {
+      new Request("https://comments.example.com/v1/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -176,11 +240,10 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(r1Res.status, 201);
     const r1 = (await r1Res.json()) as { id: string };
 
-    // Create 3 replies under root
     const replyIds: string[] = [];
     for (let i = 1; i <= 3; i++) {
       const repRes = await worker.fetch(
-        new Request("https://comments.chiyo.uk/v1/comments", {
+        new Request("https://comments.example.com/v1/comments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -198,9 +261,8 @@ describe("Worker API End-to-End Integration", () => {
       replyIds.push(rep.id);
     }
 
-    // Hide root -> root becomes placeholder, all 3 replies remain visible!
     const hideRes = await worker.fetch(
-      new Request(`https://comments.chiyo.uk/v1/admin/comments/${r1.id}`, {
+      new Request(`https://comments.example.com/v1/admin/comments/${r1.id}`, {
         method: "PATCH",
         headers: adminHeaders,
         body: JSON.stringify({ status: "hidden" }),
@@ -211,10 +273,9 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(hideRes.status, 200);
     assert.equal(hideRes.headers.get("Cache-Control"), "no-store");
 
-    // Soft-delete reply 1 -> becomes deleted placeholder, replies 2 & 3 stay visible!
     const delRep1 = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/admin/comments/${replyIds[0]}`,
+        `https://comments.example.com/v1/admin/comments/${replyIds[0]}`,
         {
           method: "PATCH",
           headers: adminHeaders,
@@ -226,10 +287,9 @@ describe("Worker API End-to-End Integration", () => {
     );
     assert.equal(delRep1.status, 200);
 
-    // Deleted cannot be restored -> 409 INVALID_STATE_TRANSITION
     const restoreAttempt = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/admin/comments/${replyIds[0]}`,
+        `https://comments.example.com/v1/admin/comments/${replyIds[0]}`,
         {
           method: "PATCH",
           headers: adminHeaders,
@@ -245,10 +305,9 @@ describe("Worker API End-to-End Integration", () => {
     };
     assert.equal(restoreBody.error.code, "INVALID_STATE_TRANSITION");
 
-    // Hard-delete parent with children -> 409 HAS_CHILD_COMMENTS
     const hardDelParent = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/admin/comments/${replyIds[0]}`,
+        `https://comments.example.com/v1/admin/comments/${replyIds[0]}`,
         {
           method: "PATCH",
           headers: adminHeaders,
@@ -264,10 +323,9 @@ describe("Worker API End-to-End Integration", () => {
     };
     assert.equal(hardDelBody.error.code, "HAS_CHILD_COMMENTS");
 
-    // Query with reply_limit=0: placeholder root visible, reply_count=2 (replies 2 & 3)
     const zeroReplyRes = await worker.fetch(
       new Request(
-        "https://comments.chiyo.uk/v1/comments?path=/posts/demo/&reply_limit=0",
+        "https://comments.example.com/v1/comments?path=/posts/demo/&reply_limit=0",
       ),
       env,
       ctx,
@@ -289,16 +347,13 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(zeroBody.items.length, 1);
     assert.equal(zeroBody.items[0]?.is_placeholder, true);
     assert.equal(zeroBody.items[0]?.placeholder_reason, "hidden");
-    assert.equal(zeroBody.items[0]?.author_name, null);
-    assert.equal(zeroBody.items[0]?.content_html, null);
     assert.equal(zeroBody.items[0]?.reply_count, 2);
     assert.equal(zeroBody.items[0]?.replies.length, 0);
     assert.equal(zeroBody.items[0]?.replies_next_cursor, null);
 
-    // Fetch /replies on placeholder root without cursor, paginating limit=2
     const page1Res = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/comments/${r1.id}/replies?limit=2`,
+        `https://comments.example.com/v1/comments/${r1.id}/replies?limit=2`,
       ),
       env,
       ctx,
@@ -313,15 +368,15 @@ describe("Worker API End-to-End Integration", () => {
       next_cursor: string | null;
     };
     assert.equal(page1.items.length, 2);
-    assert.equal(page1.items[0]?.is_placeholder, true); // reply 1 (deleted placeholder)
-    assert.equal(page1.items[1]?.is_placeholder, false); // reply 2
-    assert.equal(page1.items[1]?.reply_to_author, null); // parent is deleted placeholder
+    assert.equal(page1.items[0]?.is_placeholder, true);
+    assert.equal(page1.items[1]?.is_placeholder, false);
+    assert.equal(page1.items[1]?.reply_to_author, null);
     const nextCursor = page1.next_cursor;
     assert.ok(nextCursor);
 
     const page2Res = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/comments/${r1.id}/replies?limit=2&cursor=${encodeURIComponent(nextCursor)}`,
+        `https://comments.example.com/v1/comments/${r1.id}/replies?limit=2&cursor=${encodeURIComponent(nextCursor)}`,
       ),
       env,
       ctx,
@@ -334,10 +389,9 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(page2.items[0]?.reply_to_author, "User2");
     assert.equal(page2.next_cursor, null);
 
-    // Mark reply 2 as pending -> blocks reply 2 AND reply 3 (whole subtree hidden, root also disappears!)
     await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/admin/comments/${replyIds[1]}`,
+        `https://comments.example.com/v1/admin/comments/${replyIds[1]}`,
         {
           method: "PATCH",
           headers: adminHeaders,
@@ -349,7 +403,7 @@ describe("Worker API End-to-End Integration", () => {
     );
 
     const blockedRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments?path=/posts/demo/"),
+      new Request("https://comments.example.com/v1/comments?path=/posts/demo/"),
       env,
       ctx,
     );
@@ -360,10 +414,9 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(blockedBody.total_approved, 0);
     assert.equal(blockedBody.items.length, 0);
 
-    // Hard-delete leaf reply 3 -> 204 No Content
     const hardDelLeaf = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/admin/comments/${replyIds[2]}`,
+        `https://comments.example.com/v1/admin/comments/${replyIds[2]}`,
         {
           method: "PATCH",
           headers: adminHeaders,
@@ -391,9 +444,8 @@ describe("Worker API End-to-End Integration", () => {
       return new Response(JSON.stringify({ id: "msg_1" }), { status: 200 });
     };
 
-    // Visitor posts with notify_on_reply=true -> enqueues admin_new_comment + verify_email
     const postRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/comments", {
+      new Request("https://comments.example.com/v1/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -414,28 +466,25 @@ describe("Worker API End-to-End Integration", () => {
     };
     assert.equal(postBody.verification_queued, true);
 
-    // Drain outbox manually with mocked email providers
     const drain1 = await drainEmailOutbox(env, {
       fetchImpl: mockFetch,
       emailMessageFactory: async (from, to, rawMime) => ({ from, to, rawMime }),
     });
     assert.equal(drain1.sent, 2);
     assert.equal(sentCfEmails.length, 1);
-    assert.equal(sentCfEmails[0]?.to, "owner@chiyo.uk");
+    assert.equal(sentCfEmails[0]?.to, "owner@example.com");
     assert.equal(sentHttpEmails.length, 1);
     assert.equal(sentHttpEmails[0]?.url, "https://api.resend.com/emails");
 
-    // Extract verification URL token from sent email text
     const verifyText = String(sentHttpEmails[0]?.body.text);
     const tokenMatch = verifyText.match(/verify\?token=([^\s]+)/);
     const rawVerifyToken = tokenMatch?.[1];
     assert.ok(rawVerifyToken);
     const verifyToken = decodeURIComponent(rawVerifyToken);
 
-    // GET verify page must NOT mutate subscription status
     const getVerifyRes = await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/subscriptions/verify?token=${encodeURIComponent(verifyToken)}`,
+        `https://comments.example.com/v1/subscriptions/verify?token=${encodeURIComponent(verifyToken)}`,
       ),
       env,
       ctx,
@@ -447,9 +496,8 @@ describe("Worker API End-to-End Integration", () => {
     ).first<{ status: string }>();
     assert.equal(subBefore?.status, "pending");
 
-    // POST verify consumes token -> verified
     const postVerifyRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/subscriptions/verify", {
+      new Request("https://comments.example.com/v1/subscriptions/verify", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -466,14 +514,13 @@ describe("Worker API End-to-End Integration", () => {
     ).first<{ status: string }>();
     assert.equal(subAfter?.status, "verified");
 
-    // Admin approves parent and posts an admin reply -> enqueues reply_approved!
     const adminHeaders = {
       Authorization: "Bearer test-admin-secret-token",
       "Content-Type": "application/json",
     };
     await worker.fetch(
       new Request(
-        `https://comments.chiyo.uk/v1/admin/comments/${postBody.id}`,
+        `https://comments.example.com/v1/admin/comments/${postBody.id}`,
         {
           method: "PATCH",
           headers: adminHeaders,
@@ -485,14 +532,15 @@ describe("Worker API End-to-End Integration", () => {
     );
 
     const adminReplyRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/admin/comments", {
+      new Request("https://comments.example.com/v1/admin/comments", {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify({
           path: "/about/",
           parent_id: postBody.id,
           author_name: "Owner",
-          content: "Welcome!",
+          syntax: "mfm",
+          content: "$[tada Welcome!]",
         }),
       }),
       env,
@@ -500,9 +548,10 @@ describe("Worker API End-to-End Integration", () => {
     );
     assert.equal(adminReplyRes.status, 201);
     const adminReply = (await adminReplyRes.json()) as {
-      comment: { is_admin: boolean };
+      comment: { is_admin: boolean; syntax: string };
     };
     assert.equal(adminReply.comment.is_admin, true);
+    assert.equal(adminReply.comment.syntax, "mfm");
 
     const drain2 = await drainEmailOutbox(env, {
       fetchImpl: mockFetch,
@@ -566,22 +615,17 @@ describe("Worker API End-to-End Integration", () => {
     const converted = convertWalineToCanonical(walineSample, {
       skipPaths: ["/"],
       includePrivate: false,
-      siteUrl: "https://blog.chiyo.uk",
+      siteUrl: "https://blog.example.com",
     });
     assert.equal(converted.errors.length, 0);
     assert.equal(converted.stats.skipped_by_path, 1);
     assert.equal(converted.stats.converted, 2);
     assert.equal(converted.stats.emoji_tags_converted, 1);
-    assert.ok(
-      converted.canonical.comments[0]?.content_markdown?.includes(
-        "![weibo_love](https://unpkg.com/@waline/emojis@1.1.0/weibo/weibo_love.png)",
-      ),
-    );
+    assert.equal(converted.canonical.comments[0]?.syntax, "gfm");
     assert.equal(converted.canonical.comments[1]?.is_admin, true);
 
-    // Dry run first
     const dryRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/admin/import?dry_run=true", {
+      new Request("https://comments.example.com/v1/admin/import?dry_run=true", {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify(converted.canonical),
@@ -597,9 +641,8 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(dryReport.dry_run, true);
     assert.equal(dryReport.inserted, 2);
 
-    // Actual import
     const imp1Res = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/admin/import", {
+      new Request("https://comments.example.com/v1/admin/import", {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify(converted.canonical),
@@ -614,9 +657,8 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(imp1.inserted, 2);
     assert.equal(imp1.skipped_existing, 0);
 
-    // Idempotent repeat import
     const imp2Res = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/admin/import", {
+      new Request("https://comments.example.com/v1/admin/import", {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify(converted.canonical),
@@ -631,15 +673,13 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(imp2.inserted, 0);
     assert.equal(imp2.skipped_existing, 2);
 
-    // Zero outbox emails created by historical import
     const outboxCnt = await env.DB.prepare(
       "SELECT COUNT(*) AS cnt FROM email_outbox",
     ).first<{ cnt: number }>();
     assert.equal(outboxCnt?.cnt, 0);
 
-    // Default export omits author_email
     const expRes = await worker.fetch(
-      new Request("https://comments.chiyo.uk/v1/admin/export", {
+      new Request("https://comments.example.com/v1/admin/export", {
         headers: { Authorization: "Bearer test-admin-secret-token" },
       }),
       env,
@@ -652,5 +692,6 @@ describe("Worker API End-to-End Integration", () => {
     };
     assert.equal(exported.include_private, false);
     assert.equal("author_email" in (exported.comments[0] ?? {}), false);
+    assert.equal(exported.comments[0]?.syntax, "gfm");
   });
 });

@@ -268,6 +268,7 @@ export function convertWalineToCanonical(
       path: entry.path,
       parent_id: parentId,
       status: mapWalineStatus(rec.status),
+      syntax: "gfm",
       author_name: authorName,
       author_url: authorUrl,
       ...(options.includePrivate ? { author_email: authorEmail } : {}),

@@ -1,4 +1,4 @@
-import { escapeHtml } from "../markdown/mfm.ts";
+import { escapeHtml } from "../markdown/index.ts";
 import { AppError, jsonResponse } from "../shared/errors.ts";
 import { hmacSha256Hex } from "../shared/id.ts";
 import type { RuntimeConfig, WorkerEnv } from "./env.ts";

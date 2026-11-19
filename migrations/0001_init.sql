@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS comments (
   avatar_hue INTEGER NOT NULL DEFAULT 220,
   is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
   notify_on_reply INTEGER NOT NULL DEFAULT 0 CHECK (notify_on_reply IN (0, 1)),
+  syntax TEXT NOT NULL DEFAULT 'gfm' CHECK (syntax IN ('gfm', 'mfm')),
   content_markdown TEXT,
   content_html TEXT,
   import_source TEXT,
