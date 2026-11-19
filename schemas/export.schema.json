@@ -5,7 +5,13 @@
   "description": "Portable canonical JSON format for admin backups and cross-system comment migrations. Default exports (include_private=false) omit visitor emails but still include non-public moderation statuses and are NOT public-safe.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "version", "exported_at", "include_private", "comments"],
+  "required": [
+    "format",
+    "version",
+    "exported_at",
+    "include_private",
+    "comments"
+  ],
   "properties": {
     "format": {
       "const": "cf-comments",
@@ -81,7 +87,15 @@
     "ExportComment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "path", "parent_id", "status", "is_admin", "content_markdown", "created_at"],
+      "required": [
+        "id",
+        "path",
+        "parent_id",
+        "status",
+        "is_admin",
+        "content_markdown",
+        "created_at"
+      ],
       "properties": {
         "id": {
           "type": "string",
