@@ -16,10 +16,7 @@ import type { CommentThreadPage, ReplyPage } from "../../src/shared/types.ts";
 
 function fixture<Data>(name: string): Data {
   return JSON.parse(
-    readFileSync(
-      new URL(`../../docs/fixtures/${name}.json`, import.meta.url),
-      "utf8",
-    ),
+    readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), "utf8"),
   );
 }
 

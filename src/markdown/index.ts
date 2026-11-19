@@ -6,16 +6,8 @@ import {
   MfmRenderer,
   type MfmRenderOptions,
 } from "./mfm.ts";
-import { escapeHtml } from "./sanitize-schema.ts";
 
-export {
-  ALLOWED_MFM_FUNCTIONS,
-  escapeHtml,
-  GfmRenderer,
-  MFM_MAX_NESTING_DEPTH,
-  MfmRenderer,
-  type MfmRenderOptions,
-};
+export { ALLOWED_MFM_FUNCTIONS, MFM_MAX_NESTING_DEPTH };
 
 const gfmRenderer = new GfmRenderer();
 const mfmRenderer = new MfmRenderer();

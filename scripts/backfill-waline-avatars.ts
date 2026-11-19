@@ -9,18 +9,19 @@ import type {
   AdminAvatarBackfillItem,
   AdminAvatarBackfillReport,
 } from "../src/shared/types.ts";
+import {
+  readWalineSourceOption,
+  type WalineSourceOptions,
+} from "./lib/waline-options.ts";
 
-interface CliOptions {
-  input: string;
-  skipPaths: string[];
+interface CliOptions extends WalineSourceOptions {
   apiBase?: string;
   tokenFile?: string;
   apply: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
-  let input = "";
-  const skipPaths: string[] = [];
+  const source: WalineSourceOptions = { input: "", skipPaths: [] };
   let apiBase: string | undefined;
   let tokenFile: string | undefined;
   let apply = false;
@@ -28,26 +29,12 @@ function parseArgs(argv: string[]): CliOptions {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg) continue;
-    if (arg === "--input" && argv[i + 1]) {
-      input = argv[++i] ?? "";
-    } else if (arg.startsWith("--input=")) {
-      input = arg.slice("--input=".length);
-    } else if (arg === "--skip-paths" && argv[i + 1]) {
-      skipPaths.push(
-        ...(argv[++i] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      );
-    } else if (arg.startsWith("--skip-paths=")) {
-      skipPaths.push(
-        ...arg
-          .slice("--skip-paths=".length)
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      );
-    } else if (arg === "--api-base" && argv[i + 1]) {
+    const consumed = readWalineSourceOption(argv, i, source);
+    if (consumed !== undefined) {
+      i = consumed;
+      continue;
+    }
+    if (arg === "--api-base" && argv[i + 1]) {
       apiBase = argv[++i];
     } else if (arg.startsWith("--api-base=")) {
       apiBase = arg.slice("--api-base=".length);
@@ -59,19 +46,17 @@ function parseArgs(argv: string[]): CliOptions {
       apply = true;
     } else if (arg === "--dry-run") {
       apply = false;
-    } else if (!arg.startsWith("--") && !input) {
-      input = arg;
     }
   }
 
-  if (!input) {
+  if (!source.input) {
     console.error(
       "Usage: pnpm run backfill:waline-avatars -- --input <waline.json> [--skip-paths=/] [--api-base <https://comments.example.com>] [--token-file <.dev.vars.prod>] [--dry-run | --apply]",
     );
     process.exit(1);
   }
 
-  return { input, skipPaths, apiBase, tokenFile, apply };
+  return { ...source, apiBase, tokenFile, apply };
 }
 
 async function resolveAdminToken(tokenFile?: string): Promise<string> {

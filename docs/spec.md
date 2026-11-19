@@ -1,9 +1,9 @@
-# cf-comments v1 Frozen Specification
+# cf-comments v1 Specification
 
 ## 1. Scope & Architecture
 
 - **Single-instance deployment**: One Worker + one D1 database serves one site (no multi-tenancy in v1).
-- **Standalone repository**: Lives in `workers/comments/` as an independent Git repository with its own `package.json`, lockfile, `tsconfig.json`, `biome.json`, `cloudflare.config.ts`, migrations, and tests. Zero personal domains or credentials are hardcoded in tracked files.
+- **Standalone repository**: Builds and runs independently of any embedding site.
 - **Unified configuration**: Non-sensitive site settings live in gitignored `cf-comments.config.json` (template: `cf-comments.config.example.json`) with `CF_*` environment variable overrides for CI/CD, consumed uniformly by `cloudflare.config.ts`, `scripts/build-worker.mjs`, and `scripts/import-waline.ts`. Secrets live strictly in `.dev.vars` (local) and Cloudflare Secrets (staging/production).
 - **Tooling**: Cloudflare `cf` CLI `v0.15.0+` + `cloudflare.config.ts`. Local verification uses `--local`; staging uses a dedicated D1 database before production deployment via Worker Custom Domain.
 - **Explicit non-goals in v1**: No `pageview` counter; no ActivityPub; no KaTeX formula rendering; no image upload or image proxy; no visitor account system and no visitor self-edit/self-delete.
@@ -35,7 +35,7 @@
   - A `hidden`, `spam`, or `deleted` comment (not under a `pending` ancestor) is returned publicly **ONLY IF** it has at least one publicly visible (`approved` and unblocked) descendant. When returned as a placeholder:
     - `is_placeholder: true`
     - `placeholder_reason`: `"deleted"` if status is `deleted`, else `"hidden"` (never leak `"spam"` publicly)
-    - `author_name: null`, `author_url: null`, `avatar_hue: null`, `is_admin: false`, `content_html: null`
+    - `author_name: null`, `author_url: null`, `avatar_hue: null`, `avatar_url: null`, `is_admin: false`, `content_html: null`
   - If a `hidden` / `spam` / `deleted` comment has **no** publicly visible descendants, it is completely omitted from public responses.
   - **Placeholder roots remain paginated**: If a root thread is returned as a visible placeholder (`is_placeholder: true`), `GET /v1/comments/{id}/replies` MUST still return its visible replies (and intermediate placeholders if needed).
 - **Pagination**:
@@ -47,7 +47,7 @@
   - Request MUST explicitly provide `status`.
   - `hidden` / `spam` / `pending` <-> `approved` transitions are reversible.
   - `deleted` is **irreversible**: attempting to transition a `deleted` comment to any other status returns `409 INVALID_STATE_TRANSITION`.
-  - Soft delete (`{ "status": "deleted" }`): permanently clears `content_markdown`, `content_html`, `author_name`, `author_email`, `author_url`, sets `notify_on_reply = 0`, preserves tree skeleton, and returns `200 { comment }`.
+  - Soft delete (`{ "status": "deleted" }`): permanently clears `content_markdown`, `content_html`, `author_name`, `author_email`, `author_url`, `avatar_hash`, sets `notify_on_reply = 0`, preserves tree skeleton, and returns `200 { comment }`.
   - Hard delete (`{ "status": "deleted", "hard_delete": true }`):
     - Zero children: permanently removes row and returns **`204 No Content`**.
     - Has children: rejects with **`409 Conflict`** (`error.code = "HAS_CHILD_COMMENTS"`).
@@ -103,7 +103,7 @@
 - **No visitor account system and no visitor self-edit/self-delete in v1**.
 - **Moderation default**: `MODERATION_MODE = "pre"` (`pending`, HTTP `202`, `comment: null`). Configurable to `"post"` (`approved`, HTTP `201`).
 - **Anonymous support**: `author_name`, `author_email`, `author_url` are all optional. Empty `author_name` is stored/returned as `null`.
-- **Avatar privacy**: No Gravatar/email hashes exposed publicly. Server computes `avatar_hue` (`0..359`); frontend renders Material Design 3 monogram avatars locally.
+- **Avatars**: The widget uses a local monogram colored by `avatar_hue` (`0..359`) unless an image loads successfully. If Gravatar is enabled, public non-placeholder comments with an avatar hash include an `avatar_url` with the SHA-256 of the normalized email. The URL is public; the API does not return the raw email or a separate hash field.
 - **Anti-spam controls**: `32 KiB` body limit, honeypot (`SPAM_DETECTED`), Cloudflare Workers Rate Limiting bindings keyed by ephemeral HMAC of `CF-Connecting-IP` (raw IP never persisted), optional Turnstile server-side verification.
 - **CORS & Admin Auth**: Exact `ALLOWED_ORIGINS` whitelist on public `/v1/*`; `/admin/` same-origin; `/v1/admin/*` requires `Authorization: Bearer <ADMIN_TOKEN>` kept strictly in JS memory. `is_admin: true` is server-granted only.
 
@@ -121,24 +121,14 @@
 ## 7. Frontend Architecture, Static Assets & Caching Contract
 
 - **Frontend tech stack**: **100% Native TypeScript + CSS** (zero frontend framework runtime), following **Material Design 3** (`https://m3.material.io/`), packaged as a Web Component for effortless Swup SPA mounting/cleanup.
-- **Build handoff**:
-  - B-side outputs static deliverables into `dist/static/`:
-    - `dist/static/assets/v1/comments.js`
-    - `dist/static/assets/v1/comments.css`
-    - `dist/static/admin/index.html`
-    - `dist/static/admin/admin.js`
-    - `dist/static/admin/admin.css`
-    - `dist/static/_headers`
-  - A-side `scripts/build-worker.mjs` bundles `dist/static/` into `.cloudflare/output/v0/` via `writeAssets`, with `cloudflare.config.ts` setting `assets: { htmlHandling: "auto-trailing-slash", notFoundHandling: "none", runWorkerFirst: ["/v1/*"] }`.
-- **Cache & Header Ownership**:
-  - B-side `_headers`: static CORS + ETag revalidation (no `immutable`) for `/assets/v1/*`, security headers for `/admin/`.
-  - A-side Worker: `Cache-Control: no-store` on `/v1/admin/*`, `/v1/subscriptions/*`, and export responses.
+- **Build and deploy**: `pnpm run build` packages `dist/static/` into `.cloudflare/output/v0/`; `pnpm run deploy` publishes that build. Apply the D1 schema separately. Publish the widget's `/assets/v1/comments.js`, `comments.css`, and `preview.js` together with `/admin/` and `_headers`. The widget only loads `preview.js` on demand and renders locally with the same GFM/MFM pipeline as the Worker; publishing still sanitizes server-side.
+- **Cache and headers**: `_headers` sets static CORS for `/assets/v1/*` and security headers for `/admin/`. The Worker sends `Cache-Control: no-store` on admin and subscription API responses.
 
 ---
 
 ## 8. Export / Import Portability
 
-- Standard JSON format is defined by `schemas/export.schema.json`:
+- Standard JSON format is defined by the [export schema](../schemas/export.schema.json):
   - `include_private: false` (default): admin backup omitting visitor emails (still contains non-public statuses; NOT public-safe). Schema forbids `author_email` when `include_private: false`.
   - `include_private: true`: explicit private backup/migration including `author_email` (imported emails are never auto-subscribed).
   - Preserves per-comment `syntax` (`gfm` | `mfm`, default `gfm`).
@@ -155,6 +145,7 @@
 | Public var | `ALLOWED_ORIGINS` | Comma-separated exact CORS origins | No |
 | Public var | `MODERATION_MODE` | `pre` (default) \| `post` | Yes (`/v1/config`) |
 | Public var | `MAX_CONTENT_LENGTH` | Max comment length (default `3000`) | Yes (`/v1/config`) |
+| Public var | `GRAVATAR_ENABLED` | Enable direct Gravatar avatars (default `false`) | Yes (`gravatar_enabled`) |
 | Public var | `MISSKEY_INSTANCE_URL` | Optional Misskey origin for MFM context & client-side `:emoji:` fetch | Yes (`/v1/config`) |
 | Public var | `TURNSTILE_SITE_KEY` | Optional Turnstile public site key | Yes (`/v1/config`) |
 | Public var | `ADMIN_EMAIL_PROVIDER` | `cf_email_routing` \| `resend` \| `http` \| `none` | No |

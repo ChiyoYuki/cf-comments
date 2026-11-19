@@ -6,11 +6,13 @@ import {
   convertWalineToCanonical,
   type WalineExportPayload,
 } from "../src/importers/waline.ts";
+import {
+  readWalineSourceOption,
+  type WalineSourceOptions,
+} from "./lib/waline-options.ts";
 
-interface CliOptions {
-  input: string;
+interface CliOptions extends WalineSourceOptions {
   out?: string;
-  skipPaths: string[];
   includePrivate: boolean;
   siteUrl?: string;
   dryRun: boolean;
@@ -18,9 +20,8 @@ interface CliOptions {
 }
 
 function parseArgs(argv: string[]): CliOptions {
-  let input = "";
+  const source: WalineSourceOptions = { input: "", skipPaths: [] };
   let out: string | undefined;
-  const skipPaths: string[] = [];
   let includePrivate = false;
   let siteUrl: string | undefined;
   let dryRun = false;
@@ -29,29 +30,15 @@ function parseArgs(argv: string[]): CliOptions {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg) continue;
-    if (arg === "--input" && argv[i + 1]) {
-      input = argv[++i] ?? "";
-    } else if (arg.startsWith("--input=")) {
-      input = arg.slice("--input=".length);
-    } else if (arg === "--out" && argv[i + 1]) {
+    const consumed = readWalineSourceOption(argv, i, source);
+    if (consumed !== undefined) {
+      i = consumed;
+      continue;
+    }
+    if (arg === "--out" && argv[i + 1]) {
       out = argv[++i];
     } else if (arg.startsWith("--out=")) {
       out = arg.slice("--out=".length);
-    } else if (arg === "--skip-paths" && argv[i + 1]) {
-      skipPaths.push(
-        ...(argv[++i] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      );
-    } else if (arg.startsWith("--skip-paths=")) {
-      skipPaths.push(
-        ...arg
-          .slice("--skip-paths=".length)
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      );
     } else if (arg === "--include-private") {
       includePrivate = true;
     } else if (arg === "--site" && argv[i + 1]) {
@@ -64,19 +51,17 @@ function parseArgs(argv: string[]): CliOptions {
       configPath = arg.slice("--config=".length);
     } else if (arg === "--dry-run") {
       dryRun = true;
-    } else if (!arg.startsWith("--") && !input) {
-      input = arg;
     }
   }
 
-  if (!input) {
+  if (!source.input) {
     console.error(
       "Usage: pnpm run import:waline -- --input <waline.json> [--config <cf-comments.config.json>] [--site <url>] [--skip-paths=/] [--include-private] [--out <canonical.json>] [--dry-run]",
     );
     process.exit(1);
   }
 
-  return { input, out, skipPaths, includePrivate, siteUrl, dryRun, configPath };
+  return { ...source, out, includePrivate, siteUrl, dryRun, configPath };
 }
 
 async function main() {

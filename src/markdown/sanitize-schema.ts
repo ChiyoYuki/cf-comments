@@ -20,15 +20,6 @@ const SAFE_STYLE_RULES: Record<string, RegExp> = {
   "--mfm-border-color": /^(?:currentColor|#[0-9a-f]{3}(?:[0-9a-f]{3})?)$/i,
 };
 
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 export function isSafeHttpUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();

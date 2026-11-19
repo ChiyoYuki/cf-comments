@@ -1,5 +1,5 @@
-@import "../client/material.css";
-@import "../client/markdown.css";
+@import "../styles/material.css";
+@import "../styles/markdown.css";
 
 :root {
   color-scheme: light dark;

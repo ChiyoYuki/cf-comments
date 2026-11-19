@@ -1,4 +1,4 @@
-import { escapeHtml } from "../markdown/index.ts";
+import { escapeHtml } from "../shared/html.ts";
 import type {
   AdminNewCommentPayload,
   ReplyApprovedPayload,
