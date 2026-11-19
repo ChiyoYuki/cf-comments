@@ -1,0 +1,59 @@
+{
+  "path": "/posts/2026/11/example/",
+  "total_approved": 3,
+  "items": [
+    {
+      "id": "01JDM8Q0A1B2C3D4E5F6G7H8J9",
+      "path": "/posts/2026/11/example/",
+      "parent_id": null,
+      "root_id": null,
+      "is_placeholder": false,
+      "placeholder_reason": null,
+      "author_name": "Alice",
+      "author_url": "https://alice.example.com/",
+      "avatar_hue": 214,
+      "is_admin": false,
+      "content_html": "<p>很棒的文章！支持 <del>删除线</del> 和 <span class=\"mfm-blur\">黑幕剧透</span>。</p>\n<p><img src=\"https://images.example.com/sticker.webp\" alt=\"sticker\" loading=\"lazy\" decoding=\"async\" referrerpolicy=\"no-referrer\" class=\"cc-img\"></p>",
+      "reply_to_author": null,
+      "created_at": "2026-11-18T10:15:00.000Z",
+      "updated_at": "2026-11-18T10:15:00.000Z",
+      "reply_count": 2,
+      "replies": [
+        {
+          "id": "01JDM8R2K3L4M5N6P7Q8R9S0T1",
+          "path": "/posts/2026/11/example/",
+          "parent_id": "01JDM8Q0A1B2C3D4E5F6G7H8J9",
+          "root_id": "01JDM8Q0A1B2C3D4E5F6G7H8J9",
+          "is_placeholder": false,
+          "placeholder_reason": null,
+          "author_name": "Site Owner",
+          "author_url": "https://blog.chiyo.uk/",
+          "avatar_hue": 228,
+          "is_admin": true,
+          "content_html": "<p>谢谢留言！<span class=\"mfm-anim mfm-tada\" style=\"--mfm-speed:1s;--mfm-delay:0s\">欢迎常来</span></p>",
+          "reply_to_author": "Alice",
+          "created_at": "2026-11-18T10:30:00.000Z",
+          "updated_at": "2026-11-18T10:30:00.000Z"
+        },
+        {
+          "id": "01JDM8S9U1V2W3X4Y5Z6A7B8C9",
+          "path": "/posts/2026/11/example/",
+          "parent_id": "01JDM8R2K3L4M5N6P7Q8R9S0T1",
+          "root_id": "01JDM8Q0A1B2C3D4E5F6G7H8J9",
+          "is_placeholder": false,
+          "placeholder_reason": null,
+          "author_name": null,
+          "author_url": null,
+          "avatar_hue": 142,
+          "is_admin": false,
+          "content_html": "<p>匿名路过插楼，<code>inline code $[blur raw]</code> 不会被误解析。</p>",
+          "reply_to_author": "Site Owner",
+          "created_at": "2026-11-18T11:02:10.000Z",
+          "updated_at": "2026-11-18T11:02:10.000Z"
+        }
+      ],
+      "replies_next_cursor": null
+    }
+  ],
+  "next_cursor": null
+}

@@ -1,0 +1,37 @@
+{
+  "version": "1",
+  "site_url": "https://blog.chiyo.uk",
+  "moderation_mode": "pre",
+  "max_content_length": 4000,
+  "allow_anonymous": true,
+  "allow_remote_images": true,
+  "allow_image_upload": false,
+  "reply_notify_enabled": true,
+  "markdown": {
+    "gfm": true,
+    "mfm": true,
+    "mfm_functions": [
+      "blur",
+      "fg",
+      "bg",
+      "font",
+      "x2",
+      "flip",
+      "rotate",
+      "scale",
+      "border",
+      "ruby",
+      "tada",
+      "jelly",
+      "shake",
+      "spin",
+      "jump",
+      "bounce",
+      "twitch",
+      "rainbow",
+      "sparkle"
+    ],
+    "max_nesting_depth": 4
+  },
+  "turnstile_site_key": null
+}

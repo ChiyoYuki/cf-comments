@@ -1,0 +1,75 @@
+{
+  "path": "/about/",
+  "total_approved": 2,
+  "items": [
+    {
+      "id": "01JDM7A0B1C2D3E4F5G6H7J8K9",
+      "path": "/about/",
+      "parent_id": null,
+      "root_id": null,
+      "is_placeholder": true,
+      "placeholder_reason": "hidden",
+      "author_name": null,
+      "author_url": null,
+      "avatar_hue": null,
+      "is_admin": false,
+      "content_html": null,
+      "reply_to_author": null,
+      "created_at": "2026-11-15T08:00:00.000Z",
+      "updated_at": "2026-11-16T09:00:00.000Z",
+      "reply_count": 2,
+      "replies": [
+        {
+          "id": "01JDM7B1C2D3E4F5G6H7J8K9L0",
+          "path": "/about/",
+          "parent_id": "01JDM7A0B1C2D3E4F5G6H7J8K9",
+          "root_id": "01JDM7A0B1C2D3E4F5G6H7J8K9",
+          "is_placeholder": true,
+          "placeholder_reason": "deleted",
+          "author_name": null,
+          "author_url": null,
+          "avatar_hue": null,
+          "is_admin": false,
+          "content_html": null,
+          "reply_to_author": null,
+          "created_at": "2026-11-15T08:10:00.000Z",
+          "updated_at": "2026-11-16T09:05:00.000Z"
+        },
+        {
+          "id": "01JDM7C2D3E4F5G6H7J8K9L0M1",
+          "path": "/about/",
+          "parent_id": "01JDM7B1C2D3E4F5G6H7J8K9L0",
+          "root_id": "01JDM7A0B1C2D3E4F5G6H7J8K9",
+          "is_placeholder": false,
+          "placeholder_reason": null,
+          "author_name": "Bob",
+          "author_url": null,
+          "avatar_hue": 35,
+          "is_admin": false,
+          "content_html": "<p>即使上层评论被隐藏或删除，我的公开回复仍能正常挂载在对应楼层下。</p>",
+          "reply_to_author": null,
+          "created_at": "2026-11-15T08:25:00.000Z",
+          "updated_at": "2026-11-15T08:25:00.000Z"
+        },
+        {
+          "id": "01JDM7D3E4F5G6H7J8K9L0M1N2",
+          "path": "/about/",
+          "parent_id": "01JDM7C2D3E4F5G6H7J8K9L0M1",
+          "root_id": "01JDM7A0B1C2D3E4F5G6H7J8K9",
+          "is_placeholder": false,
+          "placeholder_reason": null,
+          "author_name": "Carol",
+          "author_url": "https://carol.example.org/",
+          "avatar_hue": 295,
+          "is_admin": false,
+          "content_html": "<p>确认楼中楼引用可见回复作者正常。</p>",
+          "reply_to_author": "Bob",
+          "created_at": "2026-11-15T09:00:00.000Z",
+          "updated_at": "2026-11-15T09:00:00.000Z"
+        }
+      ],
+      "replies_next_cursor": null
+    }
+  ],
+  "next_cursor": null
+}

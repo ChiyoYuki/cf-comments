@@ -1,0 +1,822 @@
+openapi: 3.1.0
+info:
+  title: cf-comments API
+  version: 1.0.0
+  description: |
+    Lightweight Cloudflare Workers + D1 comment system API contract (v1).
+    Supports threaded comments, GFM + safe MFM rendering, pre/post moderation,
+    double-opt-in reply email notifications, and canonical JSON import/export.
+servers:
+  - url: https://comments.chiyo.uk
+    description: Production Worker Custom Domain
+  - url: http://localhost:8787
+    description: Local cf dev server
+
+tags:
+  - name: Public
+    description: Endpoints used by the embeddable comment widget
+  - name: Subscriptions
+    description: Visitor email verification and unsubscribe endpoints
+  - name: Admin
+    description: Same-origin moderation and data portability endpoints
+
+paths:
+  /v1/config:
+    get:
+      tags: [Public]
+      summary: Get public runtime configuration for the comment widget
+      operationId: getPublicConfig
+      responses:
+        "200":
+          description: Public widget configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfig"
+
+  /v1/comments:
+    get:
+      tags: [Public]
+      summary: List paginated root comment threads for a page path
+      operationId: listComments
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: Site-relative path (normalized with trailing slash; aliases resolved server-side).
+          schema:
+            type: string
+            example: /about/
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: reply_limit
+          in: query
+          required: false
+          description: Number of initial replies to inline per root thread.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 20
+            default: 5
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [desc, asc]
+            default: desc
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor from previous response.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated list of root comment threads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentThreadPage"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+
+    post:
+      tags: [Public]
+      summary: Create a new public comment or reply
+      operationId: createComment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentRequest"
+      responses:
+        "201":
+          description: Comment created and immediately approved (visible publicly)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateCommentResponse"
+        "202":
+          description: Comment accepted and queued for moderation (status = pending)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateCommentResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "413":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/comments/{id}/replies:
+    get:
+      tags: [Public]
+      summary: List paginated replies within a root comment thread
+      operationId: listReplies
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Root comment ID.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chronologically ordered replies in the thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplyPage"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/preview:
+    post:
+      tags: [Public]
+      summary: Render sanitized GFM + MFM HTML preview using the server renderer
+      operationId: previewMarkdown
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              additionalProperties: false
+              properties:
+                content:
+                  type: string
+                  maxLength: 10000
+      responses:
+        "200":
+          description: Rendered sanitized HTML
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [html]
+                properties:
+                  html:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "413":
+          $ref: "#/components/responses/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/subscriptions/verify:
+    get:
+      tags: [Subscriptions]
+      summary: Verify a visitor email for reply notifications (double opt-in)
+      operationId: verifySubscription
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Subscription verified (HTML confirmation page or JSON when Accept includes application/json)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [verified]
+            text/html:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/subscriptions/unsubscribe:
+    get:
+      tags: [Subscriptions]
+      summary: Unsubscribe a visitor email from future reply notifications
+      operationId: unsubscribe
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Unsubscribed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [unsubscribed]
+            text/html:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/admin/comments:
+    get:
+      tags: [Admin]
+      summary: List comments for moderation
+      operationId: adminListComments
+      security:
+        - adminBearer: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [approved, pending, hidden, spam, deleted]
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          description: Substring search across author_name, content_markdown, and path.
+          schema:
+            type: string
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated admin comments list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCommentPage"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+
+    post:
+      tags: [Admin]
+      summary: Create an authenticated site-owner comment or reply (server-granted is_admin = true)
+      operationId: adminCreateComment
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
+              additionalProperties: false
+              properties:
+                path:
+                  type: string
+                parent_id:
+                  type: [string, "null"]
+                author_name:
+                  type: string
+                  maxLength: 80
+                author_url:
+                  type: [string, "null"]
+                  maxLength: 512
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+      responses:
+        "201":
+          description: Admin comment created as approved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comment]
+                properties:
+                  comment:
+                    $ref: "#/components/schemas/AdminComment"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/admin/comments/{id}:
+    patch:
+      tags: [Admin]
+      summary: Moderate a comment (approve, hide, mark spam, or delete)
+      operationId: adminUpdateComment
+      security:
+        - adminBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateCommentRequest"
+      responses:
+        "200":
+          description: Updated comment state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comment]
+                properties:
+                  comment:
+                    $ref: "#/components/schemas/AdminComment"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/admin/export:
+    get:
+      tags: [Admin]
+      summary: Export comments in standard cf-comments v1 JSON format
+      operationId: adminExportComments
+      security:
+        - adminBearer: []
+      parameters:
+        - name: include_private
+          in: query
+          required: false
+          description: When false (default), author_email is omitted.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Standard export JSON conforming to schemas/export.schema.json
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /v1/admin/import:
+    post:
+      tags: [Admin]
+      summary: Import comments from standard cf-comments JSON (supports dry_run)
+      operationId: adminImportComments
+      security:
+        - adminBearer: []
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Import or dry-run reconciliation report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportReport"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+
+components:
+  securitySchemes:
+    adminBearer:
+      type: http
+      scheme: bearer
+      description: Static admin token held strictly in memory by /admin/ UI.
+
+  responses:
+    ErrorResponse:
+      description: Structured API error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+
+  schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_PATH
+        - INVALID_INPUT
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+        - COMMENT_NOT_FOUND
+        - PARENT_NOT_FOUND
+        - PARENT_PATH_MISMATCH
+        - INVALID_CURSOR
+        - SPAM_DETECTED
+        - TURNSTILE_FAILED
+        - RATE_LIMITED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - INTERNAL_ERROR
+
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+
+    PublicConfig:
+      type: object
+      required:
+        - version
+        - site_url
+        - moderation_mode
+        - max_content_length
+        - allow_anonymous
+        - allow_remote_images
+        - allow_image_upload
+        - reply_notify_enabled
+        - markdown
+        - turnstile_site_key
+      properties:
+        version:
+          type: string
+          example: "1"
+        site_url:
+          type: string
+          example: https://blog.chiyo.uk
+        moderation_mode:
+          type: string
+          enum: [pre, post]
+        max_content_length:
+          type: integer
+          example: 4000
+        allow_anonymous:
+          type: boolean
+          example: true
+        allow_remote_images:
+          type: boolean
+          example: true
+        allow_image_upload:
+          type: boolean
+          const: false
+        reply_notify_enabled:
+          type: boolean
+          description: True when a visitor reply email provider (Resend/HTTP) is configured.
+        markdown:
+          type: object
+          required: [gfm, mfm, mfm_functions, max_nesting_depth]
+          properties:
+            gfm:
+              type: boolean
+              const: true
+            mfm:
+              type: boolean
+              const: true
+            mfm_functions:
+              type: array
+              items:
+                type: string
+            max_nesting_depth:
+              type: integer
+              example: 4
+        turnstile_site_key:
+          type: [string, "null"]
+
+    PublicComment:
+      type: object
+      required:
+        - id
+        - path
+        - parent_id
+        - root_id
+        - is_placeholder
+        - placeholder_reason
+        - author_name
+        - author_url
+        - avatar_hue
+        - is_admin
+        - content_html
+        - reply_to_author
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+        parent_id:
+          type: [string, "null"]
+        root_id:
+          type: [string, "null"]
+        is_placeholder:
+          type: boolean
+        placeholder_reason:
+          type: [string, "null"]
+          enum: [hidden, deleted, null]
+        author_name:
+          type: [string, "null"]
+          description: Null for anonymous comments or placeholders.
+        author_url:
+          type: [string, "null"]
+        avatar_hue:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 359
+        is_admin:
+          type: boolean
+        content_html:
+          type: [string, "null"]
+        reply_to_author:
+          type: [string, "null"]
+          description: Display name of the direct parent author when replying inside a thread and parent is visible.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CommentThread:
+      allOf:
+        - $ref: "#/components/schemas/PublicComment"
+        - type: object
+          required: [reply_count, replies, replies_next_cursor]
+          properties:
+            reply_count:
+              type: integer
+              minimum: 0
+              description: Count of approved (non-placeholder) replies in this thread.
+            replies:
+              type: array
+              items:
+                $ref: "#/components/schemas/PublicComment"
+            replies_next_cursor:
+              type: [string, "null"]
+
+    CommentThreadPage:
+      type: object
+      required: [path, total_approved, items, next_cursor]
+      properties:
+        path:
+          type: string
+          description: Resolved canonical path.
+        total_approved:
+          type: integer
+          minimum: 0
+          description: Total approved comments on this page (root + replies, excluding placeholders).
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommentThread"
+        next_cursor:
+          type: [string, "null"]
+
+    ReplyPage:
+      type: object
+      required: [root_id, items, next_cursor]
+      properties:
+        root_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicComment"
+        next_cursor:
+          type: [string, "null"]
+
+    CreateCommentRequest:
+      type: object
+      required: [path, content]
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        parent_id:
+          type: [string, "null"]
+        author_name:
+          type: [string, "null"]
+          maxLength: 80
+        author_email:
+          type: [string, "null"]
+          format: email
+          maxLength: 254
+        author_url:
+          type: [string, "null"]
+          maxLength: 512
+        notify_on_reply:
+          type: boolean
+          default: false
+          description: Visitor explicit opt-in to receive reply email notifications (requires author_email and double opt-in verification).
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        honeypot:
+          type: [string, "null"]
+          description: Anti-spam trap field; must remain empty.
+        turnstile_token:
+          type: [string, "null"]
+
+    CreateCommentResponse:
+      type: object
+      required: [id, path, parent_id, root_id, status, verification_sent, comment]
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+        parent_id:
+          type: [string, "null"]
+        root_id:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [approved, pending]
+        verification_sent:
+          type: boolean
+          description: True if a double-opt-in verification email was queued for author_email.
+        comment:
+          description: Present when status is approved (201); null when pending moderation (202).
+          oneOf:
+            - $ref: "#/components/schemas/PublicComment"
+            - type: "null"
+
+    AdminComment:
+      type: object
+      required:
+        - id
+        - path
+        - parent_id
+        - root_id
+        - status
+        - author_name
+        - author_email
+        - author_url
+        - avatar_hue
+        - is_admin
+        - notify_on_reply
+        - content_markdown
+        - content_html
+        - import_source
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+        parent_id:
+          type: [string, "null"]
+        root_id:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [approved, pending, hidden, spam, deleted]
+        author_name:
+          type: [string, "null"]
+        author_email:
+          type: [string, "null"]
+        author_url:
+          type: [string, "null"]
+        avatar_hue:
+          type: integer
+        is_admin:
+          type: boolean
+        notify_on_reply:
+          type: boolean
+        content_markdown:
+          type: [string, "null"]
+        content_html:
+          type: [string, "null"]
+        import_source:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AdminCommentPage:
+      type: object
+      required: [items, counts, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminComment"
+        counts:
+          type: object
+          required: [approved, pending, hidden, spam, deleted]
+          properties:
+            approved:
+              type: integer
+            pending:
+              type: integer
+            hidden:
+              type: integer
+            spam:
+              type: integer
+            deleted:
+              type: integer
+        next_cursor:
+          type: [string, "null"]
+
+    AdminUpdateCommentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [approved, pending, hidden, spam, deleted]
+          description: Setting status to deleted permanently clears content and author identity while preserving tree skeleton if children exist.
+        hard_delete:
+          type: boolean
+          default: false
+          description: Allowed only when status is deleted and the comment has zero children.
+
+    ImportReport:
+      type: object
+      required: [dry_run, total, inserted, skipped_existing, warnings, errors]
+      properties:
+        dry_run:
+          type: boolean
+        total:
+          type: integer
+        inserted:
+          type: integer
+        skipped_existing:
+          type: integer
+        warnings:
+          type: array
+          items:
+            type: string
+        errors:
+          type: array
+          items:
+            type: string

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://comments.chiyo.uk/schemas/export-v1.schema.json",
+  "title": "cf-comments Standard Export Format v1",
+  "description": "Portable canonical JSON format for exporting and importing comments across comment systems.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "exported_at", "include_private", "comments"],
+  "properties": {
+    "format": {
+      "const": "cf-comments",
+      "description": "Format identifier."
+    },
+    "version": {
+      "const": 1,
+      "description": "Schema major version."
+    },
+    "exported_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 timestamp when the export was generated."
+    },
+    "site": {
+      "type": "string",
+      "format": "uri",
+      "description": "Optional origin site URL (e.g. https://blog.chiyo.uk)."
+    },
+    "include_private": {
+      "type": "boolean",
+      "description": "False for standard public-safe exports (emails omitted). True for explicit private backups/migrations."
+    },
+    "path_aliases": {
+      "type": "array",
+      "description": "Optional explicit path alias mappings.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["alias_path", "canonical_path"],
+        "properties": {
+          "alias_path": {
+            "type": "string",
+            "pattern": "^/([^?#]*[^/?#]/|)$"
+          },
+          "canonical_path": {
+            "type": "string",
+            "pattern": "^/([^?#]*[^/?#]/|)$"
+          }
+        }
+      }
+    },
+    "comments": {
+      "type": "array",
+      "description": "Flat list of comments. Parent links are expressed via direct parent_id; root_id is derived by the importer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "parent_id", "status", "is_admin", "content_markdown", "created_at"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{8,64}$",
+            "description": "Stable unique comment identifier."
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/([^?#]*[^/?#]/|)$",
+            "description": "Canonical normalized site path with leading and trailing slash (or '/')."
+          },
+          "parent_id": {
+            "type": ["string", "null"],
+            "pattern": "^[a-zA-Z0-9_-]{8,64}$",
+            "description": "Direct parent comment ID, or null for root comments."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["approved", "pending", "hidden", "spam", "deleted"],
+            "description": "Moderation status."
+          },
+          "author_name": {
+            "type": ["string", "null"],
+            "maxLength": 80,
+            "description": "Display name, or null for anonymous/deleted comments."
+          },
+          "author_url": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 512,
+            "description": "Optional http(s) author website URL."
+          },
+          "author_email": {
+            "type": ["string", "null"],
+            "format": "email",
+            "maxLength": 254,
+            "description": "Only present when include_private is true. Imported emails are NEVER auto-subscribed to notifications."
+          },
+          "is_admin": {
+            "type": "boolean",
+            "description": "Whether the comment was authored by a verified site administrator."
+          },
+          "content_markdown": {
+            "type": ["string", "null"],
+            "maxLength": 10000,
+            "description": "Raw Markdown source text (null only when status is deleted)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Original creation time in UTC ISO-8601."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last modification time in UTC ISO-8601."
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Optional provenance metadata for idempotent migrations.",
+            "required": ["system", "external_id"],
+            "properties": {
+              "system": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
