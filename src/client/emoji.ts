@@ -38,7 +38,7 @@ export function createEmojiResolver(
   }
 
   return (name: string): Promise<string | null> => {
-    if (!/^[a-z0-9_]{1,128}$/i.test(name) || signal.aborted)
+    if (!/^[a-z0-9_+-]{1,128}$/i.test(name) || signal.aborted)
       return Promise.resolve(null);
     const cached = cache.get(name);
     if (cached) return cached;

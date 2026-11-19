@@ -140,3 +140,23 @@ test("Misskey lookups share an in-memory request and never pass credentials or u
   assert.equal(calls.length, 4);
   assert.equal(httpUrl("https://name:password@example.test/"), null);
 });
+
+test("Misskey lookup preserves hyphens and plus signs in emoji names", async () => {
+  const names: string[] = [];
+  const mock: typeof fetch = async (input, options) => {
+    const request = new Request(input, options);
+    const body = (await request.json()) as { name: string };
+    names.push(body.name);
+    return Response.json({ url: "https://cdn.example.test/blob.webp" });
+  };
+  const resolve = createEmojiResolver(
+    "https://social.example.test/",
+    new AbortController().signal,
+    mock,
+  );
+
+  assert.equal(await resolve("blob-cat"), "https://cdn.example.test/blob.webp");
+  assert.equal(await resolve("blob+cat"), "https://cdn.example.test/blob.webp");
+  assert.equal(await resolve("a".repeat(129)), null);
+  assert.deepEqual(names, ["blob-cat", "blob+cat"]);
+});
