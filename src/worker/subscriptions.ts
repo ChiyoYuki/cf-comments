@@ -6,6 +6,7 @@ import type { RuntimeConfig, WorkerEnv } from "./env.ts";
 interface SubscriptionRow {
   email_normalized: string;
   status: "pending" | "verified" | "unsubscribed";
+  verify_token_expires_at?: string | null;
 }
 
 function noStoreHtml(html: string, status = 200): Response {
@@ -132,12 +133,17 @@ export async function handleGetVerifyPage(
     `verify:${token}`,
   );
   const existing = await env.DB.prepare(
-    "SELECT email_normalized, status FROM email_subscriptions WHERE verify_token_hash = ?",
+    "SELECT email_normalized, status, verify_token_expires_at FROM email_subscriptions WHERE verify_token_hash = ?",
   )
     .bind(tokenHash)
     .first<SubscriptionRow>();
 
-  if (!existing) {
+  const nowIso = new Date().toISOString();
+  if (
+    !existing ||
+    (existing.verify_token_expires_at &&
+      existing.verify_token_expires_at <= nowIso)
+  ) {
     throw new AppError(
       400,
       "INVALID_INPUT",
@@ -170,12 +176,17 @@ export async function handlePostVerify(
     `verify:${token}`,
   );
   const existing = await env.DB.prepare(
-    "SELECT email_normalized, status FROM email_subscriptions WHERE verify_token_hash = ?",
+    "SELECT email_normalized, status, verify_token_expires_at FROM email_subscriptions WHERE verify_token_hash = ?",
   )
     .bind(tokenHash)
     .first<SubscriptionRow>();
 
-  if (!existing) {
+  const nowIso = new Date().toISOString();
+  if (
+    !existing ||
+    (existing.verify_token_expires_at &&
+      existing.verify_token_expires_at <= nowIso)
+  ) {
     throw new AppError(
       400,
       "INVALID_INPUT",
@@ -183,13 +194,12 @@ export async function handlePostVerify(
     );
   }
 
-  const now = new Date().toISOString();
   await env.DB.prepare(
     `UPDATE email_subscriptions
-     SET status = 'verified', verify_token_hash = NULL, verified_at = ?, updated_at = ?
+     SET status = 'verified', verify_token_hash = NULL, verify_token_expires_at = NULL, verified_at = ?, updated_at = ?
      WHERE email_normalized = ?`,
   )
-    .bind(now, now, existing.email_normalized)
+    .bind(nowIso, nowIso, existing.email_normalized)
     .run();
 
   if (wantsJson(request)) {
@@ -270,7 +280,7 @@ export async function handlePostUnsubscribe(
   const now = new Date().toISOString();
   await env.DB.prepare(
     `UPDATE email_subscriptions
-     SET status = 'unsubscribed', verify_token_hash = NULL, updated_at = ?
+     SET status = 'unsubscribed', verify_token_hash = NULL, verify_token_expires_at = NULL, updated_at = ?
      WHERE email_normalized = ?`,
   )
     .bind(now, existing.email_normalized)

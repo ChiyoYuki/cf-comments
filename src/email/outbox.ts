@@ -29,6 +29,9 @@ export interface EnqueueOutboxInput {
   nowIso?: string;
 }
 
+const DEFAULT_LEASE_MS = 60_000;
+const DEFAULT_RETENTION_DAYS = 30;
+
 /**
  * Prepare a transactional INSERT OR IGNORE statement for `email_outbox`.
  * Designed to be executed in the same `db.batch([...])` as the comment/status write.
@@ -41,8 +44,8 @@ export function prepareEnqueueOutbox(
   return db
     .prepare(
       `INSERT OR IGNORE INTO email_outbox
-       (id, dedupe_key, kind, recipient_email, payload_json, status, attempts, max_attempts, next_attempt_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', 0, 5, ?, ?, ?)`,
+       (id, dedupe_key, kind, recipient_email, payload_json, status, locked_until, attempts, max_attempts, next_attempt_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', NULL, 0, 5, ?, ?, ?)`,
     )
     .bind(
       generateId(),
@@ -86,6 +89,7 @@ function renderOutboxRow(
 export interface DrainOptions {
   limit?: number;
   nowMs?: number;
+  leaseMs?: number;
   fetchImpl?: typeof fetch;
   emailMessageFactory?: EmailMessageFactory;
 }
@@ -98,6 +102,29 @@ export interface DrainSummary {
   failed: number;
 }
 
+/**
+ * Remove completed/terminal outbox rows older than `retentionDays` to prevent unbounded growth.
+ */
+export async function cleanupEmailOutbox(
+  db: D1Database,
+  options: { retentionDays?: number; nowMs?: number } = {},
+): Promise<number> {
+  const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
+  const nowMs = options.nowMs ?? Date.now();
+  const cutoffIso = new Date(
+    nowMs - retentionDays * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const res = await db
+    .prepare(
+      `DELETE FROM email_outbox
+       WHERE status IN ('sent', 'skipped', 'failed') AND updated_at < ?`,
+    )
+    .bind(cutoffIso)
+    .run();
+  return Number(res.meta?.changes ?? 0);
+}
+
 export async function drainEmailOutbox(
   env: WorkerEnv,
   options: DrainOptions = {},
@@ -105,16 +132,19 @@ export async function drainEmailOutbox(
   const cfg = parseRuntimeConfig(env);
   const limit = options.limit ?? 20;
   const nowMs = options.nowMs ?? Date.now();
+  const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
   const nowIso = new Date(nowMs).toISOString();
+  const leaseUntilIso = new Date(nowMs + leaseMs).toISOString();
 
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM email_outbox
-     WHERE status = 'pending' AND next_attempt_at <= ?
+  const { results: candidates } = await env.DB.prepare(
+    `SELECT id FROM email_outbox
+     WHERE (status = 'pending' AND next_attempt_at <= ?)
+        OR (status = 'processing' AND locked_until <= ?)
      ORDER BY next_attempt_at ASC, id ASC
      LIMIT ?`,
   )
-    .bind(nowIso, limit)
-    .all<EmailOutboxRow>();
+    .bind(nowIso, nowIso, limit)
+    .all<{ id: string }>();
 
   const summary: DrainSummary = {
     processed: 0,
@@ -124,7 +154,24 @@ export async function drainEmailOutbox(
     failed: 0,
   };
 
-  for (const row of results) {
+  for (const candidate of candidates) {
+    // Atomically claim lease before dispatching to prevent concurrent duplicate sends
+    const row = await env.DB.prepare(
+      `UPDATE email_outbox
+       SET status = 'processing', locked_until = ?, updated_at = ?
+       WHERE id = ? AND (
+         (status = 'pending' AND next_attempt_at <= ?)
+         OR (status = 'processing' AND locked_until <= ?)
+       )
+       RETURNING *`,
+    )
+      .bind(leaseUntilIso, nowIso, candidate.id, nowIso, nowIso)
+      .first<EmailOutboxRow>();
+
+    if (!row) {
+      continue;
+    }
+
     summary.processed++;
     const provider =
       row.kind === "admin_new_comment"
@@ -133,7 +180,9 @@ export async function drainEmailOutbox(
 
     if (provider === "none") {
       await env.DB.prepare(
-        `UPDATE email_outbox SET status = 'skipped', last_error = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE email_outbox
+         SET status = 'skipped', locked_until = NULL, last_error = ?, updated_at = ?
+         WHERE id = ?`,
       )
         .bind("Email provider disabled", nowIso, row.id)
         .run();
@@ -173,7 +222,7 @@ export async function drainEmailOutbox(
 
       await env.DB.prepare(
         `UPDATE email_outbox
-         SET status = 'sent', attempts = attempts + 1, last_error = NULL, updated_at = ?
+         SET status = 'sent', locked_until = NULL, attempts = attempts + 1, last_error = NULL, updated_at = ?
          WHERE id = ?`,
       )
         .bind(nowIso, row.id)
@@ -189,7 +238,7 @@ export async function drainEmailOutbox(
       if (nextAttempts >= row.max_attempts) {
         await env.DB.prepare(
           `UPDATE email_outbox
-           SET status = 'failed', attempts = ?, last_error = ?, updated_at = ?
+           SET status = 'failed', locked_until = NULL, attempts = ?, last_error = ?, updated_at = ?
            WHERE id = ?`,
         )
           .bind(nextAttempts, errMsg, nowIso, row.id)
@@ -200,7 +249,7 @@ export async function drainEmailOutbox(
         const nextAt = new Date(nowMs + backoffSec * 1000).toISOString();
         await env.DB.prepare(
           `UPDATE email_outbox
-           SET attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = ?
+           SET status = 'pending', locked_until = NULL, attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = ?
            WHERE id = ?`,
         )
           .bind(nextAttempts, nextAt, errMsg, nowIso, row.id)

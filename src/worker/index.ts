@@ -1,4 +1,4 @@
-import { drainEmailOutbox } from "../email/outbox.ts";
+import { cleanupEmailOutbox, drainEmailOutbox } from "../email/outbox.ts";
 import { AppError, errorResponse } from "../shared/errors.ts";
 import { buildCorsHeaders } from "./auth.ts";
 import { parseRuntimeConfig, type WorkerEnv } from "./env.ts";
@@ -148,6 +148,6 @@ export default {
     env: WorkerEnv,
     ctx: ExecutionContext,
   ): Promise<void> {
-    ctx.waitUntil(drainEmailOutbox(env));
+    ctx.waitUntil(drainEmailOutbox(env).then(() => cleanupEmailOutbox(env.DB)));
   },
 } satisfies ExportedHandler<WorkerEnv>;

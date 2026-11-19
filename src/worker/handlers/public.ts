@@ -440,16 +440,27 @@ export async function handleCreateComment(
       const { rawToken: unsubToken, tokenHash: unsubTokenHash } =
         await deriveUnsubscribeToken(cfg.tokenSigningSecret, authorEmail);
 
+      const verifyTokenExpiresAt = new Date(
+        Date.now() + 48 * 60 * 60 * 1000,
+      ).toISOString();
       statements.push(
         env.DB.prepare(
           `INSERT INTO email_subscriptions
-           (email_normalized, status, verify_token_hash, unsubscribe_token_hash, verified_at, created_at, updated_at)
-           VALUES (?, 'pending', ?, ?, NULL, ?, ?)
+           (email_normalized, status, verify_token_hash, verify_token_expires_at, unsubscribe_token_hash, verified_at, created_at, updated_at)
+           VALUES (?, 'pending', ?, ?, ?, NULL, ?, ?)
            ON CONFLICT(email_normalized) DO UPDATE SET
              verify_token_hash = excluded.verify_token_hash,
+             verify_token_expires_at = excluded.verify_token_expires_at,
              unsubscribe_token_hash = excluded.unsubscribe_token_hash,
              updated_at = excluded.updated_at`,
-        ).bind(authorEmail, verifyTokenHash, unsubTokenHash, now, now),
+        ).bind(
+          authorEmail,
+          verifyTokenHash,
+          verifyTokenExpiresAt,
+          unsubTokenHash,
+          now,
+          now,
+        ),
       );
 
       const dayBucket = now.slice(0, 10);

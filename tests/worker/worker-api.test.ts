@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { drainEmailOutbox } from "../../src/email/outbox.ts";
+import {
+  cleanupEmailOutbox,
+  drainEmailOutbox,
+} from "../../src/email/outbox.ts";
 import { convertWalineToCanonical } from "../../src/importers/waline.ts";
 import type { WorkerEnv } from "../../src/worker/env.ts";
 import worker from "../../src/worker/index.ts";
@@ -431,7 +434,7 @@ describe("Worker API End-to-End Integration", () => {
 
   it("enforces RFC 9110 safe GET+POST subscription verification and transactional dual-provider email outbox", async () => {
     const { env, sentCfEmails } = createTestEnv({ MODERATION_MODE: "pre" });
-    const { ctx } = createMockExecutionContext();
+    const { ctx, flush } = createMockExecutionContext();
     const sentHttpEmails: Array<{
       url: string;
       body: Record<string, unknown>;
@@ -466,7 +469,9 @@ describe("Worker API End-to-End Integration", () => {
     };
     assert.equal(postBody.verification_queued, true);
 
+    await flush();
     const drain1 = await drainEmailOutbox(env, {
+      nowMs: Date.now() + 120_000,
       fetchImpl: mockFetch,
       emailMessageFactory: async (from, to, rawMime) => ({ from, to, rawMime }),
     });
@@ -553,7 +558,9 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(adminReply.comment.is_admin, true);
     assert.equal(adminReply.comment.syntax, "mfm");
 
+    await flush();
     const drain2 = await drainEmailOutbox(env, {
+      nowMs: Date.now() + 120_000,
       fetchImpl: mockFetch,
       emailMessageFactory: async (from, to, rawMime) => ({ from, to, rawMime }),
     });
@@ -693,5 +700,132 @@ describe("Worker API End-to-End Integration", () => {
     assert.equal(exported.include_private, false);
     assert.equal("author_email" in (exported.comments[0] ?? {}), false);
     assert.equal(exported.comments[0]?.syntax, "gfm");
+  });
+
+  it("prevents duplicate outbox sends under concurrency, recovers expired leases, cleans old rows, rejects expired verify tokens, and enforces DB CHECK constraints", async () => {
+    const { env, sentCfEmails } = createTestEnv({
+      MODERATION_MODE: "pre",
+      REPLY_EMAIL_PROVIDER: "resend",
+    });
+    const { ctx, flush } = createMockExecutionContext();
+
+    // 1. Concurrent drainEmailOutbox calls must claim atomically and send each email only once
+    await worker.fetch(
+      new Request("https://comments.example.com/v1/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/about/",
+          author_name: "Alice",
+          author_email: "alice@example.com",
+          notify_on_reply: true,
+          content: "Concurrency test",
+        }),
+      }),
+      env,
+      ctx,
+    );
+    await flush();
+
+    // Simulate one row stuck in 'processing' with an expired lease to verify lease recovery too
+    await env.DB.prepare(
+      `UPDATE email_outbox
+       SET status = 'processing', locked_until = '2020-01-01T00:00:00.000Z'
+       WHERE kind = 'admin_new_comment'`,
+    ).run();
+
+    const resendCalls: string[] = [];
+    const slowFetch: typeof fetch = async (_input, init) => {
+      await new Promise((r) => setTimeout(r, 10));
+      const payload = JSON.parse(String(init?.body)) as { text?: string };
+      resendCalls.push(String(payload.text ?? ""));
+      return new Response(JSON.stringify({ id: "ok" }), { status: 200 });
+    };
+
+    const futureNow = Date.now() + 120_000;
+    const [d1, d2] = await Promise.all([
+      drainEmailOutbox(env, {
+        nowMs: futureNow,
+        fetchImpl: slowFetch,
+        emailMessageFactory: async (from, to, rawMime) => ({
+          from,
+          to,
+          rawMime,
+        }),
+      }),
+      drainEmailOutbox(env, {
+        nowMs: futureNow,
+        fetchImpl: slowFetch,
+        emailMessageFactory: async (from, to, rawMime) => ({
+          from,
+          to,
+          rawMime,
+        }),
+      }),
+    ]);
+    assert.equal(d1.sent + d2.sent, 2);
+    assert.equal(sentCfEmails.length, 1);
+    assert.equal(resendCalls.length, 1);
+
+    // 2. Cleanup removes sent outbox records older than 30 days
+    const oldTime = new Date(
+      Date.now() - 40 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    await env.DB.prepare("UPDATE email_outbox SET updated_at = ?")
+      .bind(oldTime)
+      .run();
+    const deletedCnt = await cleanupEmailOutbox(env.DB, { retentionDays: 30 });
+    assert.equal(deletedCnt, 2);
+
+    // 3. Expired verify token must be rejected on both GET and POST
+    const tokenMatch = resendCalls[0]?.match(/verify\?token=([^\s]+)/);
+    const verifyToken = decodeURIComponent(tokenMatch?.[1] ?? "");
+    assert.ok(verifyToken);
+    await env.DB.prepare(
+      "UPDATE email_subscriptions SET verify_token_expires_at = '2020-01-01T00:00:00.000Z' WHERE email_normalized = 'alice@example.com'",
+    ).run();
+
+    const expiredGet = await worker.fetch(
+      new Request(
+        `https://comments.example.com/v1/subscriptions/verify?token=${encodeURIComponent(verifyToken)}`,
+      ),
+      env,
+      ctx,
+    );
+    assert.equal(expiredGet.status, 400);
+
+    const expiredPost = await worker.fetch(
+      new Request("https://comments.example.com/v1/subscriptions/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: verifyToken }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(expiredPost.status, 400);
+
+    // 4. DB CHECK constraints enforce tree, soft-delete, hue, and self-alias invariants
+    await assert.rejects(async () => {
+      await env.DB.prepare(
+        `INSERT INTO comments
+         (id, path, parent_id, root_id, status, avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, created_at, updated_at)
+         VALUES ('BADTREE1', '/about/', 'BADTREE1', NULL, 'approved', 200, 0, 0, 'gfm', 'hi', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+      ).run();
+    });
+
+    await assert.rejects(async () => {
+      await env.DB.prepare(
+        `INSERT INTO comments
+         (id, path, parent_id, root_id, status, avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, created_at, updated_at)
+         VALUES ('BADDEL01', '/about/', NULL, NULL, 'deleted', 200, 0, 0, 'gfm', 'must be null', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+      ).run();
+    });
+
+    await assert.rejects(async () => {
+      await env.DB.prepare(
+        "INSERT INTO path_aliases (alias_path, canonical_path, created_at) VALUES ('/same/', '/same/', '2026-01-01T00:00:00.000Z')",
+      ).run();
+    });
   });
 });

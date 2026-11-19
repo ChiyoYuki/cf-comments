@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS comments (
   author_name TEXT,
   author_email TEXT,
   author_url TEXT,
-  avatar_hue INTEGER NOT NULL DEFAULT 220,
+  avatar_hue INTEGER NOT NULL DEFAULT 220
+    CHECK (avatar_hue >= 0 AND avatar_hue < 360),
   is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
   notify_on_reply INTEGER NOT NULL DEFAULT 0 CHECK (notify_on_reply IN (0, 1)),
   syntax TEXT NOT NULL DEFAULT 'gfm' CHECK (syntax IN ('gfm', 'mfm')),
@@ -19,7 +20,17 @@ CREATE TABLE IF NOT EXISTS comments (
   import_source TEXT,
   import_external_id TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (parent_id IS NULL AND root_id IS NULL)
+    OR (parent_id IS NOT NULL AND root_id IS NOT NULL)
+  ),
+  CHECK (parent_id IS NULL OR parent_id <> id),
+  CHECK (root_id IS NULL OR root_id <> id),
+  CHECK (
+    (status = 'deleted' AND content_markdown IS NULL AND content_html IS NULL AND author_email IS NULL)
+    OR (status <> 'deleted' AND content_markdown IS NOT NULL)
+  )
 );
 
 -- Stable cursor pagination for root comments on a page
@@ -40,6 +51,10 @@ CREATE INDEX IF NOT EXISTS idx_comments_parent_id
 CREATE INDEX IF NOT EXISTS idx_comments_status_created
   ON comments(status, created_at DESC, id DESC);
 
+-- Admin unfiltered recency list and chronological scans
+CREATE INDEX IF NOT EXISTS idx_comments_created
+  ON comments(created_at DESC, id DESC);
+
 -- Idempotent imports from external comment systems (e.g. waline)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_comments_import_source_ext
   ON comments(import_source, import_external_id)
@@ -49,7 +64,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_comments_import_source_ext
 CREATE TABLE IF NOT EXISTS path_aliases (
   alias_path TEXT PRIMARY KEY,
   canonical_path TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  CHECK (alias_path <> canonical_path)
 );
 
 CREATE INDEX IF NOT EXISTS idx_path_aliases_canonical
@@ -61,6 +77,7 @@ CREATE TABLE IF NOT EXISTS email_subscriptions (
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'verified', 'unsubscribed')),
   verify_token_hash TEXT,
+  verify_token_expires_at TEXT,
   unsubscribe_token_hash TEXT NOT NULL,
   verified_at TEXT,
   created_at TEXT NOT NULL,
@@ -74,7 +91,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_email_subscriptions_verify_token
 CREATE UNIQUE INDEX IF NOT EXISTS idx_email_subscriptions_unsub_token
   ON email_subscriptions(unsubscribe_token_hash);
 
--- Transactional email outbox for reliable, deduplicated delivery with bounded retries
+-- Transactional email outbox for reliable, deduplicated delivery with lease locking and bounded retries
 CREATE TABLE IF NOT EXISTS email_outbox (
   id TEXT PRIMARY KEY,
   dedupe_key TEXT NOT NULL UNIQUE,
@@ -83,7 +100,8 @@ CREATE TABLE IF NOT EXISTS email_outbox (
   recipient_email TEXT NOT NULL,
   payload_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+    CHECK (status IN ('pending', 'processing', 'sent', 'failed', 'skipped')),
+  locked_until TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 5,
   next_attempt_at TEXT NOT NULL,
@@ -93,5 +111,9 @@ CREATE TABLE IF NOT EXISTS email_outbox (
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_outbox_pending
-  ON email_outbox(status, next_attempt_at ASC)
+  ON email_outbox(next_attempt_at ASC, id ASC)
   WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_email_outbox_processing
+  ON email_outbox(locked_until ASC)
+  WHERE status = 'processing';

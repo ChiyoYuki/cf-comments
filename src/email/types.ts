@@ -18,7 +18,8 @@ export interface EmailOutboxRow {
   kind: OutboxKind;
   recipient_email: string;
   payload_json: string;
-  status: "pending" | "sent" | "failed" | "skipped";
+  status: "pending" | "processing" | "sent" | "failed" | "skipped";
+  locked_until: string | null;
   attempts: number;
   max_attempts: number;
   next_attempt_at: string;
