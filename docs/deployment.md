@@ -1,11 +1,28 @@
-# Production deployment with GitHub Actions
+# Deploy cf-comments
+
+English · [简体中文](deployment.zh-CN.md)
+
+## First deploy
+
+From the repository root, install dependencies with `pnpm install --frozen-lockfile` and sign in with `cf auth login` or configure Cloudflare API credentials. For a new instance:
+
+1. Create a D1 database with `cf d1 create --name cf-comments`. Set its name and UUID as `d1DatabaseName` and `d1DatabaseId` in `cf-comments.config.json`.
+2. Set `workerName`, `siteUrl`, `allowedOrigins`, and `commentsDomain` for your site. Configure any email or avatar options you need; see the [configuration matrix](spec.md#9-configuration-matrix-public-vs-bindings-vs-secrets).
+3. Initialize the **new** database using `cf d1 migrations apply <database-uuid> --dir migrations` (in non-interactive CI/scripts, pass `CI=true ... < /dev/null`). For an existing database, check its schema first (`cf d1 migrations list <database-uuid> --dir migrations`) and apply only the required forward migrations. Do not recreate a database that already holds comments.
+4. Build with `pnpm run build`. Check the output with `cf deploy --prebuilt --dry-run`, then deploy the first version using `cf deploy --prebuilt --secrets-file <private-secrets-file>`. Use the [secrets template](../.env.example) as a starting point; provide the required secrets and those for enabled providers. Keep the file outside Git.
+5. Verify `/v1/config` on the Worker domain and unlock `/admin/` with the configured admin token. Ordinary widget updates are published with the Worker and do not require rebuilding the embedding site.
+
+## GitHub Actions
 
 Pull requests to `main` run lint, type checks, tests, and a build. Pushes to `main` also deploy after the checks pass when the repository variable `CF_DEPLOY_ENABLED` is `true`. An older queued run skips deployment if its commit is no longer the tip of `main`. The workflow uses Node 24, a frozen pnpm lockfile, and `cf@0.15.0`.
 
-## One-time setup
+### One-time setup
 
 1. Deploy the Worker and apply its D1 schema separately if not already done. The workflow is for an **existing Worker with one custom domain**; it refuses to create a replacement or switch databases or domains.
-2. In GitHub **Settings → Environments**, create `production` and allow deployments only from the `main` branch. Store an account-scoped Cloudflare deployment API token as the environment secret `CLOUDFLARE_API_TOKEN`. Grant only the necessary Workers, account, D1, and target-zone permissions. The Worker inherits its existing declared secrets on deploy; never upload `.dev.vars.prod` or business secrets to GitHub.
+2. In GitHub **Settings → Environments**, create `production` and allow deployments only from the `main` branch. Store an account-scoped Cloudflare deployment API token as the environment secret `CLOUDFLARE_API_TOKEN` with minimal permissions:
+   - **Account** (scoped to the target account): `Workers Scripts: Edit`, `Account Settings: Read`, `D1: Read` (no D1 Edit needed because pushes do not run migrations).
+   - **Zone** (scoped to the custom domain's zone): `Zone: Read`, `Workers Routes: Edit`, `DNS: Edit` (used by Custom Domains reconciliation).
+   - **Secret inheritance**: `cf@0.15.0` automatically inherits all existing declared secrets on Cloudflare (`ADMIN_TOKEN`, `TOKEN_SIGNING_SECRET`, optional `RESEND_API_KEY` / `TURNSTILE_SECRET_KEY`) when deploying without `--secrets-file`; never upload `.dev.vars.prod` or business secrets to GitHub. When enabling a brand-new secret for the first time (e.g. Turnstile), upload that secret once to Cloudflare before pushing the config change.
 3. Set the following **environment variables** from the existing production configuration. Do not copy the example values into production.
 
 | Purpose | Variables |
