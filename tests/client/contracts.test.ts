@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { ApiError, createApi, httpUrl } from "../../src/client/api.ts";
+import { avatarInitial, commentAvatarUrl } from "../../src/client/avatar.ts";
 import { createEmojiResolver } from "../../src/client/emoji.ts";
 import {
   arrangeReplies,
@@ -18,6 +19,40 @@ function fixture<Data>(name: string): Data {
     ),
   );
 }
+
+test("monogram fallback preserves the first complete nickname character", () => {
+  assert.equal(avatarInitial("  晴空"), "晴");
+  assert.equal(avatarInitial("Anonymous"), "A");
+  assert.equal(avatarInitial("👩‍💻 Dev"), "👩‍💻");
+  assert.equal(avatarInitial("e\u0301toile"), "e\u0301");
+});
+
+test("avatars accept only the fixed HTTPS Gravatar URL for public comments", () => {
+  const row = { is_placeholder: false };
+  const hash = "0123456789abcdef".repeat(4);
+  const path = `/avatar/${hash}?s=96&d=404&r=g`;
+  const url = `https://gravatar.com${path}`;
+  assert.equal(commentAvatarUrl({ ...row, avatar_url: url }), url);
+  for (const avatar_url of [
+    null,
+    "/v1/comments/example01/avatar",
+    `//gravatar.com${path}`,
+    `http://gravatar.com${path}`,
+    `https://gravatar.com.evil.example${path}`,
+    url.replace(hash, hash.toUpperCase()),
+    url.replace(hash, hash.slice(1)),
+    url.replace("d=404", "d=mp"),
+    `${url}&tracking=extra`,
+    `${url}#fragment`,
+  ]) {
+    assert.equal(commentAvatarUrl({ ...row, avatar_url }), null);
+  }
+  assert.equal(commentAvatarUrl(row), null);
+  assert.equal(
+    commentAvatarUrl({ avatar_url: url, is_placeholder: true }),
+    null,
+  );
+});
 
 test("a hidden or deleted ancestor remains in the hierarchy without becoming replyable content", () => {
   const thread = fixture<CommentThreadPage>("comments-hidden-parent").items[0];

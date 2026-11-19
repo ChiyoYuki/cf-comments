@@ -4,28 +4,131 @@
 :host {
   display: block;
   color-scheme: var(--cc-color-scheme, light dark);
+  container-type: inline-size;
 }
 .cc-widget {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  --cc-radius: 1rem;
+  --cc-control-height: 2.25rem;
+  --cc-root-avatar-size: 2.25rem;
+  --cc-row-inset: 0.5rem;
+  --cc-thread-axis: calc(var(--cc-row-inset) + var(--cc-root-avatar-size) / 2);
+  --cc-byline-gap: 0.5rem;
+  --cc-motion: 150ms;
+  --cc-avatar-motion: 180ms;
 }
 .cc-heading {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
 }
-.cc-form,
+.cc-heading h2 {
+  font-size: 1.25rem;
+}
+.cc-comment-count {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+}
+.cc-form {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 0;
+  background: var(--md-sys-color-surface-container);
+}
 .cc-comment,
 .cc-thread {
   display: grid;
-  gap: 0.75rem;
+  min-inline-size: 0;
+  gap: 0.25rem;
+}
+.cc-thread + .cc-thread {
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+  padding-block-start: 0.5rem;
+}
+.cc-comment {
+  --cc-avatar-size: var(--cc-root-avatar-size);
+  padding: 0.25rem var(--cc-row-inset) 0.5rem;
+}
+.cc-byline {
+  display: grid;
+  grid-template-columns: var(--cc-avatar-size) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--cc-byline-gap);
+}
+.cc-author {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-inline-size: 0;
+  white-space: nowrap;
+}
+.cc-author .cc-badge {
+  flex: none;
+  padding: 0.125rem 0.375rem;
+}
+.cc-comment-time,
+.cc-reply-context {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.75rem;
+  line-height: 1.3333;
+}
+.cc-comment-time {
+  flex: none;
+}
+.cc-comment-time::before {
+  content: "·" / "";
+  margin-inline-end: 0.25rem;
+}
+.cc-reply-context {
+  display: inline-flex;
+  min-inline-size: 0;
+  gap: 0.25rem;
+}
+.cc-name,
+.cc-recipient,
+.cc-options-name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-reply-action {
+  color: var(--md-sys-color-on-surface-variant);
+}
+.cc-reply-action:not(:disabled):is(:hover, :focus-visible) {
+  color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+@container (max-width: 25rem) {
+  .cc-author {
+    display: grid;
+    grid-template-columns: minmax(0, auto) auto minmax(0, 1fr);
+    justify-content: start;
+    row-gap: 0.125rem;
+  }
+  .cc-author:not(:has(.cc-badge)) {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  }
+  .cc-comment-time {
+    grid-column: 1 / -1;
+  }
+  .cc-comment-time::before {
+    content: none;
+  }
+}
+@container (min-width: 38rem) {
+  .cc-comment-content {
+    margin-inline-start: calc(var(--cc-avatar-size) + var(--cc-byline-gap));
+  }
 }
 .cc-threads,
 .cc-replies {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.5rem;
   padding: 0;
   list-style: none;
 }
@@ -34,23 +137,22 @@
   display: none;
 }
 .cc-replies {
-  margin-inline-start: clamp(0.4rem, 3vw, 1.5rem);
-  border-inline-start: 1px solid var(--md-sys-color-outline-variant);
-  padding-inline-start: clamp(0.4rem, 3vw, 1.5rem);
+  margin-inline-start: calc(var(--cc-thread-axis) - 1px);
+  border-inline-start: 2px solid var(--md-sys-color-outline-variant);
+  padding-inline-start: 0.375rem;
 }
-.cc-replies > [data-depth="1"] {
-  margin-inline-start: clamp(0.375rem, 2vw, 1rem);
-}
-.cc-replies > [data-depth="2"] {
-  margin-inline-start: clamp(0.75rem, 4vw, 2rem);
+.cc-replies .cc-comment {
+  --cc-avatar-size: 1.75rem;
 }
 .cc-avatar {
+  position: relative;
   border-radius: 50%;
-  inline-size: 2.5rem;
-  block-size: 2.5rem;
+  inline-size: var(--cc-avatar-size);
+  block-size: var(--cc-avatar-size);
   display: grid;
   place-items: center;
   flex: none;
+  font-size: 0.875rem;
   font-weight: 700;
   color: light-dark(
     oklch(27% 0.09 var(--avatar-hue, 225)),
@@ -61,33 +163,179 @@
     oklch(38% 0.07 var(--avatar-hue, 225))
   );
 }
-.cc-author,
-.cc-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
+.cc-avatar-image {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--cc-avatar-motion) ease;
+}
+.cc-avatar-loaded {
+  opacity: 1;
 }
 .cc-name {
   font-weight: 650;
 }
 .cc-placeholder {
-  border-style: dashed;
+  border: 1px dashed var(--md-sys-color-outline-variant);
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.5rem;
   color: var(--md-sys-color-on-surface-variant);
   font-size: 0.875rem;
 }
 .cc-reply-tools {
-  margin-inline-start: clamp(0.4rem, 3vw, 1.5rem);
+  margin-inline-start: var(--cc-thread-axis);
 }
-.cc-reply-context {
-  margin-block-end: -0.5rem;
+.cc-reply-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+  padding: 0.125rem 0.25rem 0.125rem 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 0.875rem;
 }
-.cc-reply-target,
+.cc-reply-target-label {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.cc-reply-target .cc-button {
+  margin-inline-start: auto;
+  color: inherit;
+}
 .cc-preview {
   border-radius: 0.75rem;
-  background: var(--md-sys-color-surface-container);
-  padding: 0.65rem 0.9rem;
+  background: var(--md-sys-color-surface);
+  padding: 0.375rem 0.625rem;
 }
-.cc-toolbar .cc-filled {
+.cc-toolbar {
+  justify-content: space-between;
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
+}
+.cc-composer-actions {
   margin-inline-start: auto;
+}
+.cc-option-fields {
+  display: grid;
+  gap: 0.25rem;
+}
+.cc-option-fields .cc-fields {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+.cc-option-fields .cc-field,
+.cc-form > .cc-field {
+  gap: 0.25rem;
+}
+.cc-form > .cc-field textarea {
+  border-color: var(--md-sys-color-outline-variant);
+}
+.cc-form .cc-field > :is(input, textarea) {
+  transition:
+    border-color var(--cc-motion) ease,
+    box-shadow var(--cc-motion) ease;
+}
+.cc-form .cc-field > :is(input, textarea):focus {
+  border-color: var(--md-sys-color-primary);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+  outline: none;
+}
+@media (forced-colors: active) {
+  .cc-form .cc-field > :is(input, textarea):focus {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+.cc-options > summary,
+.cc-syntax-help {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+}
+.cc-options > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  list-style: none;
+  cursor: pointer;
+  min-block-size: var(--cc-control-height);
+}
+.cc-options > summary::-webkit-details-marker {
+  display: none;
+}
+.cc-options > summary::before {
+  content: "";
+  flex: none;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+  transition: transform var(--cc-motion) ease;
+}
+.cc-options[open] > summary::before {
+  transform: rotate(45deg);
+}
+.cc-options-name {
+  font-size: 0.75rem;
+  text-align: end;
+  margin-inline-start: auto;
+}
+.cc-options[open] .cc-options-name {
+  display: none;
+}
+.cc-syntax-help {
+  display: inline-grid;
+  place-items: center;
+  padding-inline: 0.25rem;
+  font-size: 0.75rem;
+}
+.cc-widget :is(.cc-button, .cc-syntax-help, .cc-segments label span) {
+  min-inline-size: 3rem;
+  min-block-size: var(--cc-control-height);
+  padding-inline: 0.625rem;
+}
+.cc-widget :is(.cc-button, .cc-segments label span) {
+  transition:
+    background-color var(--cc-motion) ease,
+    color var(--cc-motion) ease,
+    box-shadow var(--cc-motion) ease;
+}
+.cc-widget .cc-button:not(:disabled):active {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.cc-widget .cc-button.cc-filled:not(:disabled):active {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-primary) 12%,
+    var(--md-sys-color-primary)
+  );
+}
+.cc-widget .cc-segments label:active span {
+  box-shadow: inset 0 0 0 100vmax
+    color-mix(in srgb, currentColor 12%, transparent);
+}
+.cc-widget .cc-check {
+  min-block-size: var(--cc-control-height);
+  cursor: pointer;
+}
+@media (any-pointer: coarse) {
+  .cc-widget {
+    --cc-control-height: 3rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-widget {
+    --cc-motion: 0ms;
+    --cc-avatar-motion: 0ms;
+  }
 }
 .cc-captcha {
   display: grid;
@@ -96,7 +344,6 @@
   min-inline-size: 0;
   overflow-x: auto;
 }
-.cc-comment .cc-button,
 .cc-widget > .cc-button {
   justify-self: start;
 }

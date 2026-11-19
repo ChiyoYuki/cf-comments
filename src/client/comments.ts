@@ -8,6 +8,7 @@ import type {
   ReplyPage,
 } from "../shared/types.ts";
 import { type Api, ApiError, createApi, errorMessage, httpUrl } from "./api.ts";
+import { renderAvatar } from "./avatar.ts";
 import { button, element, formatTime, renderContent } from "./content.ts";
 import { field, syntaxPicker, syntaxValue, textInput } from "./editor.ts";
 import { createEmojiResolver } from "./emoji.ts";
@@ -16,6 +17,10 @@ import { arrangeReplies, hasMoreReplies, mergeById } from "./threads.ts";
 import { loadTurnstile } from "./turnstile.ts";
 
 const tagName = "cf-comments";
+const syntaxDocs = {
+  gfm: "https://github.github.com/gfm/",
+  mfm: "https://misskey-hub.net/en/docs/for-users/features/mfm/",
+};
 
 class Widget {
   readonly controller = new AbortController();
@@ -25,7 +30,7 @@ class Widget {
   readonly panel = element("section", "cc-widget");
   readonly list = element("ol", "cc-threads");
   readonly status = element("p", "cc-status");
-  readonly count = element("span", "cc-count");
+  readonly count = element("span", "cc-comment-count");
   readonly next = button("");
   readonly form = element("form", "cc-form cc-surface");
   readonly input = element("textarea");
@@ -79,12 +84,7 @@ class Widget {
       this.input.focus();
     });
     const header = element("header", "cc-heading");
-    const title = element("div");
-    title.append(
-      element("h2", "", this.text.title),
-      element("p", "cc-muted", this.text.intro),
-    );
-    header.append(title, this.count);
+    header.append(element("h2", "", this.text.title), this.count);
     this.panel.append(header, this.form, this.status, this.list, this.next);
     this.form.hidden = true;
     const style = element("link");
@@ -200,9 +200,7 @@ class Widget {
       );
       replies.replaceChildren(...ordered);
       replyCount.textContent = `${thread.reply_count} ${this.text.replies}`;
-      tools.hidden =
-        thread.reply_count === 0 && thread.replies_next_cursor === null;
-      more.hidden = !hasMoreReplies(
+      tools.hidden = !hasMoreReplies(
         thread.replies_next_cursor,
         state.loaded,
         thread.reply_count,
@@ -238,7 +236,7 @@ class Widget {
   }
 
   comment(row: PublicComment): HTMLElement {
-    const card = element("article", "cc-comment cc-surface");
+    const card = element("article", "cc-comment");
     if (row.is_placeholder) {
       card.classList.add("cc-placeholder");
       card.append(
@@ -253,56 +251,55 @@ class Widget {
       return card;
     }
     const name = row.author_name || this.text.anonymous;
-    const avatar = element(
-      "span",
-      "cc-avatar",
-      Array.from(name)[0]?.toUpperCase(),
-    );
-    avatar.setAttribute("aria-hidden", "true");
-    if (typeof row.avatar_hue === "number" && Number.isFinite(row.avatar_hue))
-      avatar.style.setProperty(
-        "--avatar-hue",
-        String(Math.max(0, Math.min(359, row.avatar_hue))),
-      );
+    const avatar = renderAvatar(name, row, this.signal);
     const author = element("div", "cc-author");
-    const identity = element("div", "cc-row");
     const website = httpUrl(row.author_url);
     if (website) {
       const link = element("a", "cc-name", name);
       link.href = website.href;
       link.target = "_blank";
       link.rel = "noopener noreferrer ugc nofollow";
-      identity.append(link);
-    } else identity.append(element("strong", "cc-name", name));
+      link.title = name;
+      author.append(link);
+    } else {
+      const label = element("strong", "cc-name", name);
+      label.title = name;
+      author.append(label);
+    }
     if (row.is_admin)
-      identity.append(element("span", "cc-badge", this.text.owner));
+      author.append(element("span", "cc-badge", this.text.owner));
+    if (row.reply_to_author) {
+      const context = element("span", "cc-reply-context");
+      const arrow = element("span", "", "▸");
+      arrow.setAttribute("aria-hidden", "true");
+      const recipient = element("span", "cc-recipient", row.reply_to_author);
+      recipient.title = row.reply_to_author;
+      context.append(
+        arrow,
+        element("span", "cc-sr-only", `${this.text.replyTo} `),
+        recipient,
+      );
+      author.append(context);
+    }
     const date = element(
       "time",
-      "cc-muted",
+      "cc-comment-time",
       formatTime(row.created_at, this.locale) ?? "",
     );
     date.dateTime = row.created_at;
-    author.append(identity, date);
-    const header = element("header", "cc-row");
-    header.append(avatar, author);
-    card.append(header);
-    if (row.reply_to_author)
-      card.append(
-        element(
-          "p",
-          "cc-muted cc-reply-context",
-          `${this.text.replyTo} ${row.reply_to_author}`,
-        ),
-      );
-    const content = element("div", "cc-md");
-    this.showContent(content, row.content_html ?? "");
-    const reply = button(this.text.reply);
+    author.append(date);
+    const header = element("header", "cc-byline");
+    const reply = button(this.text.reply, "cc-button cc-reply-action");
     reply.setAttribute("aria-label", `${this.text.replyTo} ${name}`);
     reply.addEventListener("click", () => {
       this.setParent(row);
       this.input.focus();
     });
-    card.append(content, reply);
+    header.append(avatar, author, reply);
+    card.append(header);
+    const content = element("div", "cc-md cc-comment-content");
+    this.showContent(content, row.content_html ?? "");
+    card.append(content);
     return card;
   }
 
@@ -312,7 +309,11 @@ class Widget {
     this.target.replaceChildren();
     if (row)
       this.target.append(
-        `${this.text.replyTo} ${row.author_name || this.text.anonymous} `,
+        element(
+          "span",
+          "cc-reply-target-label",
+          `${this.text.replyTo} ${row.author_name || this.text.anonymous}`,
+        ),
         this.cancel,
       );
   }
@@ -378,7 +379,7 @@ class Widget {
     this.input.name = "content";
     this.input.required = true;
     this.input.maxLength = config.max_content_length;
-    this.input.rows = 4;
+    this.input.rows = 3;
     const fields = element("div", "cc-fields");
     const name = textInput("author_name", "text", 80);
     name.setAttribute("autocomplete", "nickname");
@@ -386,9 +387,16 @@ class Widget {
     mail.autocomplete = "email";
     const site = textInput("author_url", "url", 512);
     site.setAttribute("autocomplete", "url");
+    const emailField = field(this.text.email, mail);
+    if (config.gravatar_enabled) {
+      const avatarHint = element("span", "cc-muted", this.text.gravatarEmail);
+      avatarHint.id = "cc-gravatar-email";
+      mail.setAttribute("aria-describedby", avatarHint.id);
+      emailField.append(avatarHint);
+    }
     fields.append(
       field(this.text.name, name),
-      field(this.text.email, mail),
+      emailField,
       field(this.text.website, site),
     );
     const trap = textInput("honeypot", "text", 200);
@@ -403,6 +411,37 @@ class Widget {
     consent.append(notify, this.text.optIn);
     consent.hidden = !config.reply_notify_enabled;
     notify.disabled = !config.reply_notify_enabled;
+    const options = element("details", "cc-options");
+    const summary = element("summary");
+    const nickname = element("span", "cc-options-name");
+    nickname.hidden = true;
+    summary.append(
+      element(
+        "span",
+        "",
+        config.reply_notify_enabled
+          ? this.text.notifyOptions
+          : this.text.options,
+      ),
+      nickname,
+    );
+    const updateNickname = () => {
+      const value = name.value.trim();
+      nickname.hidden = !value;
+      nickname.textContent = value;
+    };
+    name.addEventListener("input", updateNickname);
+    options.addEventListener("toggle", updateNickname);
+    const optionFields = element("div", "cc-option-fields");
+    optionFields.append(fields, consent);
+    options.append(summary, optionFields);
+    options.addEventListener(
+      "invalid",
+      () => {
+        options.open = true;
+      },
+      true,
+    );
     const syntax = syntaxPicker(
       this.text.syntax,
       config.markdown.default_syntax,
@@ -412,8 +451,14 @@ class Widget {
     const preview = button(this.text.preview);
     const post = button(this.text.post, "cc-button cc-filled");
     post.type = "submit";
-    toolbar.append(syntax, preview, post);
-    const hint = element("p", "cc-muted");
+    const help = element("a", "cc-syntax-help");
+    help.target = "_blank";
+    help.rel = "noopener noreferrer";
+    const tools = element("div", "cc-row cc-format-tools");
+    tools.append(syntax, help);
+    const actions = element("div", "cc-row cc-composer-actions");
+    actions.append(preview, post);
+    toolbar.append(tools, actions);
     const previewBox = element("div", "cc-md cc-preview");
     previewBox.hidden = true;
     previewBox.setAttribute("role", "region");
@@ -423,7 +468,6 @@ class Widget {
       previewRequest?.abort();
       previewBox.hidden = true;
       previewBox.replaceChildren();
-      hint.textContent = this.text[syntaxValue(new FormData(this.form))];
     };
     preview.addEventListener("click", async () => {
       if (!this.input.reportValidity()) return;
@@ -448,19 +492,28 @@ class Widget {
       }
     });
     this.input.addEventListener("input", clearPreview);
-    syntax.addEventListener("change", clearPreview);
+    const updateSyntaxHelp = () => {
+      const mode = syntaxValue(new FormData(this.form));
+      help.href =
+        mode === "mfm" && /^zh(?:-|$)/i.test(this.locale)
+          ? "https://misskey-hub.net/cn/docs/for-users/features/mfm/"
+          : syntaxDocs[mode];
+      help.textContent = this.text[mode];
+    };
+    syntax.addEventListener("change", () => {
+      clearPreview();
+      updateSyntaxHelp();
+    });
     this.form.append(
       this.target,
       field(this.text.write, this.input),
-      hint,
-      fields,
-      consent,
+      options,
       honeypot,
     );
     if (config.turnstile_site_key) this.addCaptcha(config.turnstile_site_key);
     this.form.append(toolbar, previewBox, this.notice);
     this.setParent(null);
-    clearPreview();
+    updateSyntaxHelp();
     this.form.hidden = false;
     this.form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -472,6 +525,7 @@ class Widget {
       }
       if (notify.checked && !mail.value.trim()) {
         this.notice.textContent = this.text.emailNeeded;
+        options.open = true;
         mail.focus();
         return;
       }
