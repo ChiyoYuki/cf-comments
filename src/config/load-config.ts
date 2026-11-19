@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   d1StagingDatabaseName: "cf-comments-staging",
   d1StagingDatabaseId: "",
   moderationMode: "pre",
-  maxContentLength: 4000,
+  maxContentLength: 3000,
   misskeyInstanceUrl: "https://misskey.io",
   turnstileSiteKey: "",
   email: {

@@ -154,7 +154,7 @@
 | Public var | `SITE_URL` | Canonical site origin | Yes (`/v1/config`) |
 | Public var | `ALLOWED_ORIGINS` | Comma-separated exact CORS origins | No |
 | Public var | `MODERATION_MODE` | `pre` (default) \| `post` | Yes (`/v1/config`) |
-| Public var | `MAX_CONTENT_LENGTH` | Max comment length (default `4000`) | Yes (`/v1/config`) |
+| Public var | `MAX_CONTENT_LENGTH` | Max comment length (default `3000`) | Yes (`/v1/config`) |
 | Public var | `MISSKEY_INSTANCE_URL` | Optional Misskey origin for MFM context & client-side `:emoji:` fetch | Yes (`/v1/config`) |
 | Public var | `TURNSTILE_SITE_KEY` | Optional Turnstile public site key | Yes (`/v1/config`) |
 | Public var | `ADMIN_EMAIL_PROVIDER` | `cf_email_routing` \| `resend` \| `http` \| `none` | No |

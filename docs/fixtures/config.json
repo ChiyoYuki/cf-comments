@@ -2,7 +2,7 @@
   "version": "1",
   "site_url": "https://blog.example.com",
   "moderation_mode": "pre",
-  "max_content_length": 4000,
+  "max_content_length": 3000,
   "allow_anonymous": true,
   "allow_remote_images": true,
   "allow_image_upload": false,

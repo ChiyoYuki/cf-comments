@@ -65,11 +65,11 @@ export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
   const moderationMode: ModerationMode =
     env.MODERATION_MODE === "post" ? "post" : "pre";
 
-  const parsedMax = Number.parseInt(env.MAX_CONTENT_LENGTH || "4000", 10);
+  const parsedMax = Number.parseInt(env.MAX_CONTENT_LENGTH || "3000", 10);
   const maxContentLength =
     Number.isFinite(parsedMax) && parsedMax >= 100 && parsedMax <= 10000
       ? parsedMax
-      : 4000;
+      : 3000;
 
   const misskeyRaw = env.MISSKEY_INSTANCE_URL?.trim();
   const misskeyInstanceUrl = misskeyRaw

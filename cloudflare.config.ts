@@ -37,6 +37,14 @@ export default defineConfig(({ mode }) => {
           name: d1Name,
           ...(d1Id ? { id: d1Id } : {}),
         }),
+        RATE_LIMIT_SUBMIT: bindings.rateLimit({
+          namespace: isStaging ? "1001" : "1002",
+          simple: { limit: 5, period: 60 },
+        }),
+        RATE_LIMIT_PREVIEW: bindings.rateLimit({
+          namespace: isStaging ? "1003" : "1004",
+          simple: { limit: 30, period: 60 },
+        }),
         ...(cfg.email.adminProvider === "cf_email_routing" &&
         cfg.email.adminNotifyEmail
           ? {

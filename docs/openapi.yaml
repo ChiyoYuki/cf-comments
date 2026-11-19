@@ -646,7 +646,7 @@ components:
           enum: [pre, post]
         max_content_length:
           type: integer
-          example: 4000
+          example: 3000
         allow_anonymous:
           type: boolean
           example: true

@@ -21,7 +21,7 @@ function createTestEnv(overrides: Partial<WorkerEnv> = {}): {
     SITE_URL: "https://blog.example.com",
     ALLOWED_ORIGINS: "https://blog.example.com",
     MODERATION_MODE: "pre",
-    MAX_CONTENT_LENGTH: "4000",
+    MAX_CONTENT_LENGTH: "3000",
     MISSKEY_INSTANCE_URL: "https://misskey.example.com",
     ADMIN_EMAIL_PROVIDER: "cf_email_routing",
     REPLY_EMAIL_PROVIDER: "resend",
