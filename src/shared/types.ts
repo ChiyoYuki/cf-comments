@@ -54,6 +54,7 @@ export interface PublicConfig {
   allow_remote_images: true;
   allow_image_upload: false;
   reply_notify_enabled: boolean;
+  gravatar_enabled?: boolean;
   misskey_instance_url: string | null;
   markdown: {
     syntax_modes: readonly CommentSyntax[];
@@ -77,6 +78,7 @@ export interface PublicComment {
   author_name: string | null;
   author_url: string | null;
   avatar_hue: number | null;
+  avatar_url?: string | null;
   is_admin: boolean;
   content_html: string | null;
   reply_to_author: string | null;
@@ -217,6 +219,25 @@ export interface ImportReport {
   errors: string[];
 }
 
+export interface AdminAvatarBackfillItem {
+  import_source: string;
+  import_external_id: string;
+  avatar_hash: string;
+}
+
+export interface AdminAvatarBackfillRequest {
+  items: AdminAvatarBackfillItem[];
+}
+
+export interface AdminAvatarBackfillReport {
+  dry_run: boolean;
+  total: number;
+  updated: number;
+  skipped_already_set: number;
+  skipped_non_public: number;
+  unmatched: number;
+}
+
 export interface CommentRow {
   id: string;
   path: string;
@@ -227,6 +248,7 @@ export interface CommentRow {
   author_email: string | null;
   author_url: string | null;
   avatar_hue: number;
+  avatar_hash?: string | null;
   is_admin: number;
   notify_on_reply: number;
   syntax: CommentSyntax;

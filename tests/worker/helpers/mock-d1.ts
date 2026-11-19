@@ -1,13 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION_PATH = path.resolve(
-  __dirname,
-  "../../../migrations/0001_init.sql",
-);
+const MIGRATIONS_DIR = path.resolve(__dirname, "../../../migrations");
 
 class SqlitePreparedStatement {
   private readonly db: DatabaseSync;
@@ -115,8 +112,13 @@ class SqlitePreparedStatement {
 export function createTestD1(): { db: D1Database; sqlite: DatabaseSync } {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON;");
-  const migrationSql = readFileSync(MIGRATION_PATH, "utf8");
-  sqlite.exec(migrationSql);
+  const migrationFiles = readdirSync(MIGRATIONS_DIR)
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  for (const file of migrationFiles) {
+    const migrationSql = readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
+    sqlite.exec(migrationSql);
+  }
 
   const db = {
     prepare(query: string): D1PreparedStatement {

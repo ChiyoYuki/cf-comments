@@ -1,4 +1,5 @@
 import { type CursorPayload, encodeCursor } from "../shared/cursor.ts";
+import { buildGravatarUrl } from "../shared/id.ts";
 import type {
   AdminComment,
   CommentRow,
@@ -132,6 +133,7 @@ export function buildVisibilityIndex(rows: CommentRow[]): VisibilityIndex {
 export function toPublicComment(
   row: CommentRow,
   index: VisibilityIndex,
+  options?: { gravatarEnabled?: boolean },
 ): PublicComment {
   const isPlaceholder = index.visiblePlaceholder.has(row.id);
   if (isPlaceholder) {
@@ -146,6 +148,7 @@ export function toPublicComment(
       author_name: null,
       author_url: null,
       avatar_hue: null,
+      avatar_url: null,
       is_admin: false,
       content_html: null,
       reply_to_author: null,
@@ -173,6 +176,9 @@ export function toPublicComment(
     author_name: row.author_name,
     author_url: row.author_url,
     avatar_hue: row.avatar_hue,
+    avatar_url: options?.gravatarEnabled
+      ? buildGravatarUrl(row.avatar_hash)
+      : null,
     is_admin: row.is_admin === 1,
     content_html: row.content_html,
     reply_to_author: replyToAuthor,
@@ -233,8 +239,10 @@ export function buildCommentThreadPage(params: {
   replyLimit: number;
   sort: "desc" | "asc";
   cursor: CursorPayload | null;
+  gravatarEnabled?: boolean;
 }): CommentThreadPage {
   const index = buildVisibilityIndex(params.rows);
+  const publicOpts = { gravatarEnabled: params.gravatarEnabled };
 
   const visibleRoots = (index.childrenByParent.get(null) ?? []).filter((r) =>
     index.isVisible(r.id),
@@ -261,7 +269,9 @@ export function buildCommentThreadPage(params: {
 
     if (params.replyLimit > 0) {
       const slicedRows = descendants.slice(0, params.replyLimit);
-      repliesSlice = slicedRows.map((d) => toPublicComment(d, index));
+      repliesSlice = slicedRows.map((d) =>
+        toPublicComment(d, index, publicOpts),
+      );
       if (descendants.length > params.replyLimit) {
         const lastReply = slicedRows[slicedRows.length - 1];
         if (lastReply) {
@@ -274,7 +284,7 @@ export function buildCommentThreadPage(params: {
     }
 
     return {
-      ...toPublicComment(rootRow, index),
+      ...toPublicComment(rootRow, index, publicOpts),
       reply_count: approvedReplyCount,
       replies: repliesSlice,
       replies_next_cursor: repliesNextCursor,
@@ -300,6 +310,7 @@ export function buildReplyPage(params: {
   threadRows: CommentRow[];
   limit: number;
   cursor: CursorPayload | null;
+  gravatarEnabled?: boolean;
 }): ReplyPage | null {
   const index = buildVisibilityIndex(params.threadRows);
   const rootRow = index.byId.get(params.rootId);
@@ -317,10 +328,11 @@ export function buildReplyPage(params: {
   const hasMore = filtered.length > params.limit;
   const pageRows = filtered.slice(0, params.limit);
   const lastRow = pageRows[pageRows.length - 1];
+  const publicOpts = { gravatarEnabled: params.gravatarEnabled };
 
   return {
     root_id: params.rootId,
-    items: pageRows.map((r) => toPublicComment(r, index)),
+    items: pageRows.map((r) => toPublicComment(r, index, publicOpts)),
     next_cursor:
       hasMore && lastRow
         ? encodeCursor({ t: lastRow.created_at, id: lastRow.id })

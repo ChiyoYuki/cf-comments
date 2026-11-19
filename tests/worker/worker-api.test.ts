@@ -828,4 +828,339 @@ describe("Worker API End-to-End Integration", () => {
       ).run();
     });
   });
+
+  it("direct Gravatar avatar_url respects gravatar_enabled, normalizes email SHA-256, and clears on placeholder/soft-delete", async () => {
+    const { env } = createTestEnv({
+      MODERATION_MODE: "post",
+      GRAVATAR_ENABLED: "true",
+    });
+    const { ctx } = createMockExecutionContext();
+
+    // 1. Config exposes gravatar_enabled=true
+    const cfgRes = await worker.fetch(
+      new Request("https://comments.example.com/v1/config"),
+      env,
+      ctx,
+    );
+    const cfg = (await cfgRes.json()) as { gravatar_enabled: boolean };
+    assert.equal(cfg.gravatar_enabled, true);
+
+    // 2. Posting with mixed-case email generates deterministic SHA-256 Gravatar URL
+    const createRes = await worker.fetch(
+      new Request("https://comments.example.com/v1/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/posts/gravatar/",
+          author_name: "Alice",
+          author_email: "  Alice@Example.COM ",
+          content: "Root comment with Gravatar",
+        }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(createRes.status, 201);
+    const created = (await createRes.json()) as {
+      id: string;
+      comment: {
+        avatar_url: string | null;
+        author_email?: unknown;
+      };
+    };
+    const expectedUrl =
+      "https://gravatar.com/avatar/ff8d9819fc0e12bf0d24892e45987e249a28dce836a85cad60e28eaaa8c6d976?s=96&d=404&r=g";
+    assert.equal(created.comment.avatar_url, expectedUrl);
+    assert.equal("author_email" in created.comment, false);
+
+    // 3. Reply without email gets avatar_url=null
+    const replyRes = await worker.fetch(
+      new Request("https://comments.example.com/v1/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/posts/gravatar/",
+          parent_id: created.id,
+          author_name: "Bob",
+          content: "Reply without email",
+        }),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(replyRes.status, 201);
+    const replyCreated = (await replyRes.json()) as {
+      comment: { avatar_url: string | null };
+    };
+    assert.equal(replyCreated.comment.avatar_url, null);
+
+    // 4. Listing comments returns avatar_url when enabled, null when disabled
+    const listOn = (await (
+      await worker.fetch(
+        new Request(
+          "https://comments.example.com/v1/comments?path=/posts/gravatar/",
+        ),
+        env,
+        ctx,
+      )
+    ).json()) as {
+      items: Array<{
+        avatar_url: string | null;
+        replies: Array<{ avatar_url: string | null }>;
+      }>;
+    };
+    assert.equal(listOn.items[0]?.avatar_url, expectedUrl);
+    assert.equal(listOn.items[0]?.replies[0]?.avatar_url, null);
+
+    const listOff = (await (
+      await worker.fetch(
+        new Request(
+          "https://comments.example.com/v1/comments?path=/posts/gravatar/",
+        ),
+        { ...env, GRAVATAR_ENABLED: "false" },
+        ctx,
+      )
+    ).json()) as {
+      items: Array<{ avatar_url: string | null }>;
+    };
+    assert.equal(listOff.items[0]?.avatar_url, null);
+
+    // 5. Hidden parent becomes placeholder with avatar_url=null
+    await worker.fetch(
+      new Request(
+        `https://comments.example.com/v1/admin/comments/${created.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: "Bearer test-admin-secret-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "hidden" }),
+        },
+      ),
+      env,
+      ctx,
+    );
+    const listHidden = (await (
+      await worker.fetch(
+        new Request(
+          "https://comments.example.com/v1/comments?path=/posts/gravatar/",
+        ),
+        env,
+        ctx,
+      )
+    ).json()) as {
+      items: Array<{ is_placeholder: boolean; avatar_url: string | null }>;
+    };
+    assert.equal(listHidden.items[0]?.is_placeholder, true);
+    assert.equal(listHidden.items[0]?.avatar_url, null);
+
+    // 6. Soft-delete clears avatar_hash in D1
+    await worker.fetch(
+      new Request(
+        `https://comments.example.com/v1/admin/comments/${created.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: "Bearer test-admin-secret-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "deleted" }),
+        },
+      ),
+      env,
+      ctx,
+    );
+    const dbRow = await env.DB.prepare(
+      "SELECT author_email, avatar_hash FROM comments WHERE id = ?",
+    )
+      .bind(created.id)
+      .first<{ author_email: string | null; avatar_hash: string | null }>();
+    assert.equal(dbRow?.author_email, null);
+    assert.equal(dbRow?.avatar_hash, null);
+  });
+
+  it("POST /v1/admin/avatars/backfill performs idempotent hash-only backfill without restoring email or reply notifications", async () => {
+    const { env } = createTestEnv({ GRAVATAR_ENABLED: "true" });
+    const { ctx } = createMockExecutionContext();
+
+    // Seed two imported comments (one approved without email, one spam without email)
+    const importPayload = {
+      format: "cf-comments",
+      version: 1,
+      exported_at: "2026-11-19T00:00:00.000Z",
+      include_private: false,
+      comments: [
+        {
+          id: "waline_approved_01",
+          path: "/about/",
+          parent_id: null,
+          status: "approved",
+          syntax: "gfm",
+          author_name: "LegacyUser",
+          author_url: null,
+          is_admin: false,
+          content_markdown: "Legacy approved comment",
+          created_at: "2025-11-01T00:00:00.000Z",
+          source: { system: "waline", external_id: "ext-approved-1" },
+        },
+        {
+          id: "waline_spam_000001",
+          path: "/about/",
+          parent_id: null,
+          status: "spam",
+          syntax: "gfm",
+          author_name: "Spammer",
+          author_url: null,
+          is_admin: false,
+          content_markdown: "Legacy spam comment",
+          created_at: "2025-11-02T00:00:00.000Z",
+          source: { system: "waline", external_id: "ext-spam-1" },
+        },
+      ],
+    };
+
+    const impRes = await worker.fetch(
+      new Request("https://comments.example.com/v1/admin/import", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer test-admin-secret-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(importPayload),
+      }),
+      env,
+      ctx,
+    );
+    assert.equal(impRes.status, 200);
+
+    const hashA = "a".repeat(64);
+    const hashB = "b".repeat(64);
+    const hashC = "c".repeat(64);
+    const backfillBody = {
+      items: [
+        {
+          import_source: "waline",
+          import_external_id: "ext-approved-1",
+          avatar_hash: hashA,
+        },
+        {
+          import_source: "waline",
+          import_external_id: "ext-spam-1",
+          avatar_hash: hashB,
+        },
+        {
+          import_source: "waline",
+          import_external_id: "ext-missing-99",
+          avatar_hash: hashC,
+        },
+      ],
+    };
+
+    // 1. Dry-run reports exact counts without writing
+    const dryRes = await worker.fetch(
+      new Request(
+        "https://comments.example.com/v1/admin/avatars/backfill?dry_run=true",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer test-admin-secret-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(backfillBody),
+        },
+      ),
+      env,
+      ctx,
+    );
+    assert.equal(dryRes.status, 200);
+    assert.deepEqual(await dryRes.json(), {
+      dry_run: true,
+      total: 3,
+      updated: 1,
+      skipped_already_set: 0,
+      skipped_non_public: 1,
+      unmatched: 1,
+    });
+
+    // 2. Apply updates only approved row, keeps author_email=NULL and notify_on_reply=0
+    const applyRes = await worker.fetch(
+      new Request(
+        "https://comments.example.com/v1/admin/avatars/backfill?dry_run=false",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer test-admin-secret-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(backfillBody),
+        },
+      ),
+      env,
+      ctx,
+    );
+    assert.equal(applyRes.status, 200);
+    assert.deepEqual(await applyRes.json(), {
+      dry_run: false,
+      total: 3,
+      updated: 1,
+      skipped_already_set: 0,
+      skipped_non_public: 1,
+      unmatched: 1,
+    });
+
+    const approvedRow = await env.DB.prepare(
+      "SELECT author_email, notify_on_reply, avatar_hash FROM comments WHERE id = 'waline_approved_01'",
+    ).first<{
+      author_email: string | null;
+      notify_on_reply: number;
+      avatar_hash: string | null;
+    }>();
+    assert.equal(approvedRow?.author_email, null);
+    assert.equal(approvedRow?.notify_on_reply, 0);
+    assert.equal(approvedRow?.avatar_hash, hashA);
+
+    const spamRow = await env.DB.prepare(
+      "SELECT avatar_hash FROM comments WHERE id = 'waline_spam_000001'",
+    ).first<{ avatar_hash: string | null }>();
+    assert.equal(spamRow?.avatar_hash, null);
+
+    // 3. Re-running is idempotent
+    const repeatRes = await worker.fetch(
+      new Request(
+        "https://comments.example.com/v1/admin/avatars/backfill?dry_run=false",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer test-admin-secret-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(backfillBody),
+        },
+      ),
+      env,
+      ctx,
+    );
+    assert.deepEqual(await repeatRes.json(), {
+      dry_run: false,
+      total: 3,
+      updated: 0,
+      skipped_already_set: 1,
+      skipped_non_public: 1,
+      unmatched: 1,
+    });
+
+    // 4. Public endpoint exposes direct Gravatar URL for backfilled comment
+    const pubList = (await (
+      await worker.fetch(
+        new Request("https://comments.example.com/v1/comments?path=/about/"),
+        env,
+        ctx,
+      )
+    ).json()) as { items: Array<{ avatar_url: string | null }> };
+    assert.equal(
+      pubList.items[0]?.avatar_url,
+      `https://gravatar.com/avatar/${hashA}?s=96&d=404&r=g`,
+    );
+  });
 });

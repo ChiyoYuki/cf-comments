@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS comments (
   author_url TEXT,
   avatar_hue INTEGER NOT NULL DEFAULT 220
     CHECK (avatar_hue >= 0 AND avatar_hue < 360),
+  avatar_hash TEXT
+    CHECK (
+      avatar_hash IS NULL
+      OR (length(avatar_hash) = 64 AND avatar_hash NOT GLOB '*[^0-9a-f]*')
+    ),
   is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
   notify_on_reply INTEGER NOT NULL DEFAULT 0 CHECK (notify_on_reply IN (0, 1)),
   syntax TEXT NOT NULL DEFAULT 'gfm' CHECK (syntax IN ('gfm', 'mfm')),
@@ -28,7 +33,7 @@ CREATE TABLE IF NOT EXISTS comments (
   CHECK (parent_id IS NULL OR parent_id <> id),
   CHECK (root_id IS NULL OR root_id <> id),
   CHECK (
-    (status = 'deleted' AND content_markdown IS NULL AND content_html IS NULL AND author_email IS NULL)
+    (status = 'deleted' AND content_markdown IS NULL AND content_html IS NULL AND author_email IS NULL AND avatar_hash IS NULL)
     OR (status <> 'deleted' AND content_markdown IS NOT NULL)
   )
 );

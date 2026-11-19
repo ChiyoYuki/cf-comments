@@ -57,6 +57,7 @@ export default defineConfig(({ mode }) => {
         ALLOWED_ORIGINS: bindings.text(allowedOrigins.join(",")),
         MODERATION_MODE: bindings.text(cfg.moderationMode),
         MAX_CONTENT_LENGTH: bindings.text(String(cfg.maxContentLength)),
+        GRAVATAR_ENABLED: bindings.text(String(cfg.gravatarEnabled)),
         MISSKEY_INSTANCE_URL: bindings.text(cfg.misskeyInstanceUrl),
         TURNSTILE_SITE_KEY: bindings.text(cfg.turnstileSiteKey),
         ADMIN_EMAIL_PROVIDER: bindings.text(cfg.email.adminProvider),

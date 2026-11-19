@@ -62,6 +62,25 @@ export function computeAvatarHue(authorName: string | null): number {
   return Math.abs(hash) % 360;
 }
 
+export const AVATAR_HASH_RE = /^[0-9a-f]{64}$/;
+
+export async function sha256Hex(message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest("SHA-256", enc.encode(message));
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export function buildGravatarUrl(
+  avatarHash: string | null | undefined,
+): string | null {
+  if (!avatarHash || !AVATAR_HASH_RE.test(avatarHash)) {
+    return null;
+  }
+  return `https://gravatar.com/avatar/${avatarHash}?s=96&d=404&r=g`;
+}
+
 export async function hmacSha256Hex(
   secret: string,
   message: string,

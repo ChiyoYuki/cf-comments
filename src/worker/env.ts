@@ -21,6 +21,7 @@ export interface WorkerEnv {
   ALLOWED_ORIGINS?: string;
   MODERATION_MODE?: string;
   MAX_CONTENT_LENGTH?: string;
+  GRAVATAR_ENABLED?: string;
   MISSKEY_INSTANCE_URL?: string;
   TURNSTILE_SITE_KEY?: string;
   ADMIN_EMAIL_PROVIDER?: string;
@@ -42,6 +43,7 @@ export interface RuntimeConfig {
   allowedOrigins: Set<string>;
   moderationMode: ModerationMode;
   maxContentLength: number;
+  gravatarEnabled: boolean;
   misskeyInstanceUrl: string | null;
   turnstileSiteKey: string | null;
   turnstileSecretKey: string | null;
@@ -95,6 +97,7 @@ export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
     allowedOrigins,
     moderationMode,
     maxContentLength,
+    gravatarEnabled: env.GRAVATAR_ENABLED === "true",
     misskeyInstanceUrl,
     turnstileSiteKey: env.TURNSTILE_SITE_KEY?.trim() || null,
     turnstileSecretKey: env.TURNSTILE_SECRET_KEY?.trim() || null,

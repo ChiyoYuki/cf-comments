@@ -23,6 +23,7 @@ export interface ProjectConfig {
   d1StagingDatabaseId: string;
   moderationMode: "pre" | "post";
   maxContentLength: number;
+  gravatarEnabled: boolean;
   misskeyInstanceUrl: string;
   turnstileSiteKey: string;
   email: ProjectEmailConfig;
@@ -41,6 +42,7 @@ const DEFAULT_CONFIG: ProjectConfig = {
   d1StagingDatabaseId: "",
   moderationMode: "pre",
   maxContentLength: 3000,
+  gravatarEnabled: false,
   misskeyInstanceUrl: "https://misskey.io",
   turnstileSiteKey: "",
   email: {
@@ -138,6 +140,11 @@ export function loadProjectConfig(configPath?: string): ProjectConfig {
       ? maxLenRaw
       : DEFAULT_CONFIG.maxContentLength;
 
+  const gravatarEnabled =
+    env.CF_GRAVATAR_ENABLED !== undefined
+      ? env.CF_GRAVATAR_ENABLED === "true"
+      : (file.gravatarEnabled ?? DEFAULT_CONFIG.gravatarEnabled);
+
   return {
     workerName:
       env.CF_WORKER_NAME || file.workerName || DEFAULT_CONFIG.workerName,
@@ -171,6 +178,7 @@ export function loadProjectConfig(configPath?: string): ProjectConfig {
       DEFAULT_CONFIG.d1StagingDatabaseId,
     moderationMode,
     maxContentLength,
+    gravatarEnabled,
     misskeyInstanceUrl: (
       env.CF_MISSKEY_INSTANCE_URL ??
       file.misskeyInstanceUrl ??

@@ -19,6 +19,7 @@
     "build:worker": "node scripts/build-worker.mjs",
     "build": "pnpm run build:static && pnpm run build:worker",
     "import:waline": "node --experimental-strip-types scripts/import-waline.ts",
+    "backfill:waline-avatars": "node --experimental-strip-types scripts/backfill-waline-avatars.ts",
     "dev": "cf dev --local",
     "deploy:staging": "cf deploy --prebuilt --mode staging",
     "deploy": "cf deploy --prebuilt"

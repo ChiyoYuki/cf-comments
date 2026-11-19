@@ -3,6 +3,7 @@ import { AppError, errorResponse } from "../shared/errors.ts";
 import { buildCorsHeaders } from "./auth.ts";
 import { parseRuntimeConfig, type WorkerEnv } from "./env.ts";
 import {
+  handleAdminBackfillAvatars,
   handleAdminCreateComment,
   handleAdminExport,
   handleAdminImport,
@@ -64,7 +65,7 @@ async function routeApiRequest(
     if (pathname === "/v1/config" && method === "GET") {
       response = handleGetConfig(cfg);
     } else if (pathname === "/v1/comments" && method === "GET") {
-      response = await handleListComments(request, env);
+      response = await handleListComments(request, env, cfg);
     } else if (pathname === "/v1/comments" && method === "POST") {
       response = await handleCreateComment(request, env, cfg, ctx);
     } else if (pathname === "/v1/preview" && method === "POST") {
@@ -91,12 +92,15 @@ async function routeApiRequest(
       response = await handleAdminExport(request, env, cfg);
     } else if (pathname === "/v1/admin/import" && method === "POST") {
       response = await handleAdminImport(request, env, cfg);
+    } else if (pathname === "/v1/admin/avatars/backfill" && method === "POST") {
+      response = await handleAdminBackfillAvatars(request, env);
     } else {
       const repliesMatch = pathname.match(/^\/v1\/comments\/([^/]+)\/replies$/);
       if (repliesMatch?.[1] && method === "GET") {
         response = await handleListReplies(
           request,
           env,
+          cfg,
           decodeURIComponent(repliesMatch[1]),
         );
       } else {

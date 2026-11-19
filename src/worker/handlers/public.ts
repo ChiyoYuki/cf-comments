@@ -11,6 +11,7 @@ import {
   generateId,
   generateRandomToken,
   hmacSha256Hex,
+  sha256Hex,
 } from "../../shared/id.ts";
 import {
   normalizeEmail,
@@ -82,6 +83,7 @@ export function handleGetConfig(cfg: RuntimeConfig): Response {
     allow_remote_images: true,
     allow_image_upload: false,
     reply_notify_enabled: cfg.replyEmailProvider !== "none",
+    gravatar_enabled: cfg.gravatarEnabled,
     misskey_instance_url: cfg.misskeyInstanceUrl,
     markdown: {
       syntax_modes: ["gfm", "mfm"],
@@ -127,6 +129,7 @@ function parseIntParam(
 export async function handleListComments(
   request: Request,
   env: WorkerEnv,
+  cfg: RuntimeConfig,
 ): Promise<Response> {
   const url = new URL(request.url);
   const rawPath = url.searchParams.get("path");
@@ -177,6 +180,7 @@ export async function handleListComments(
     replyLimit,
     sort: sortRaw,
     cursor,
+    gravatarEnabled: cfg.gravatarEnabled,
   });
 
   return jsonResponse(page);
@@ -185,6 +189,7 @@ export async function handleListComments(
 export async function handleListReplies(
   request: Request,
   env: WorkerEnv,
+  cfg: RuntimeConfig,
   rootId: string,
 ): Promise<Response> {
   const url = new URL(request.url);
@@ -208,7 +213,13 @@ export async function handleListReplies(
     throw new AppError(404, "COMMENT_NOT_FOUND", "Comment thread not found.");
   }
 
-  const page = buildReplyPage({ rootId, threadRows, limit, cursor });
+  const page = buildReplyPage({
+    rootId,
+    threadRows,
+    limit,
+    cursor,
+    gravatarEnabled: cfg.gravatarEnabled,
+  });
   if (!page) {
     throw new AppError(404, "COMMENT_NOT_FOUND", "Comment thread not found.");
   }
@@ -373,15 +384,16 @@ export async function handleCreateComment(
     misskeyInstanceUrl: cfg.misskeyInstanceUrl,
   });
   const avatarHue = computeAvatarHue(authorName);
+  const avatarHash = authorEmail ? await sha256Hex(authorEmail) : null;
   const origin = new URL(request.url).origin;
 
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO comments
        (id, path, parent_id, root_id, status, author_name, author_email, author_url,
-        avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, content_html,
+        avatar_hue, avatar_hash, is_admin, notify_on_reply, syntax, content_markdown, content_html,
         import_source, import_external_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
     ).bind(
       id,
       canonicalPath,
@@ -392,6 +404,7 @@ export async function handleCreateComment(
       authorEmail,
       authorUrl,
       avatarHue,
+      avatarHash,
       notifyOnReply ? 1 : 0,
       syntax,
       contentMarkdown,
@@ -540,6 +553,7 @@ export async function handleCreateComment(
       author_email: authorEmail,
       author_url: authorUrl,
       avatar_hue: avatarHue,
+      avatar_hash: avatarHash,
       is_admin: 0,
       notify_on_reply: notifyOnReply ? 1 : 0,
       syntax,
@@ -553,7 +567,9 @@ export async function handleCreateComment(
     const vis = buildVisibilityIndex(
       parentRow ? [parentRow, createdRow] : [createdRow],
     );
-    publicComment = toPublicComment(createdRow, vis);
+    publicComment = toPublicComment(createdRow, vis, {
+      gravatarEnabled: cfg.gravatarEnabled,
+    });
   }
 
   const responseBody: CreateCommentResponse = {

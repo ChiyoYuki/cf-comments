@@ -11,6 +11,7 @@
   "d1StagingDatabaseId": "",
   "moderationMode": "pre",
   "maxContentLength": 3000,
+  "gravatarEnabled": false,
   "misskeyInstanceUrl": "https://misskey.io",
   "turnstileSiteKey": "",
   "email": {

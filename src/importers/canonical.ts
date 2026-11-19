@@ -1,6 +1,6 @@
 import { renderCommentContent } from "../markdown/index.ts";
 import { AppError } from "../shared/errors.ts";
-import { computeAvatarHue } from "../shared/id.ts";
+import { computeAvatarHue, sha256Hex } from "../shared/id.ts";
 import {
   normalizeEmail,
   normalizeHttpUrl,
@@ -532,6 +532,10 @@ export async function importCanonicalToDb(
             misskeyInstanceUrl: options.misskeyInstanceUrl,
           });
     const avatarHue = computeAvatarHue(c.author_name ?? null);
+    const avatarHash =
+      c.status !== "deleted" && c.author_email
+        ? await sha256Hex(c.author_email)
+        : null;
     const importSource = c.source?.system ?? "canonical";
     const importExternalId = c.source?.external_id ?? c.id;
 
@@ -541,9 +545,9 @@ export async function importCanonicalToDb(
         .prepare(
           `INSERT INTO comments
            (id, path, parent_id, root_id, status, author_name, author_email, author_url,
-            avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, content_html,
+            avatar_hue, avatar_hash, is_admin, notify_on_reply, syntax, content_markdown, content_html,
             import_source, import_external_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           c.id,
@@ -555,6 +559,7 @@ export async function importCanonicalToDb(
           c.author_email ?? null,
           c.author_url ?? null,
           avatarHue,
+          avatarHash,
           c.is_admin ? 1 : 0,
           syntax,
           c.content_markdown,

@@ -562,6 +562,79 @@ paths:
         "401":
           $ref: "#/components/responses/ErrorResponse"
 
+  /v1/admin/avatars/backfill:
+    post:
+      tags: [Admin]
+      summary: Idempotently backfill SHA-256 avatar hashes for imported public comments without storing raw emails
+      operationId: adminBackfillAvatars
+      security:
+        - adminBearer: []
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 5000
+                  items:
+                    type: object
+                    required: [import_source, import_external_id, avatar_hash]
+                    properties:
+                      import_source:
+                        type: string
+                      import_external_id:
+                        type: string
+                      avatar_hash:
+                        type: string
+                        pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: "Backfill or dry-run report (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - dry_run
+                  - total
+                  - updated
+                  - skipped_already_set
+                  - skipped_non_public
+                  - unmatched
+                properties:
+                  dry_run:
+                    type: boolean
+                  total:
+                    type: integer
+                  updated:
+                    type: integer
+                  skipped_already_set:
+                    type: integer
+                  skipped_non_public:
+                    type: integer
+                  unmatched:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+
 components:
   securitySchemes:
     adminBearer:
@@ -631,6 +704,7 @@ components:
         - allow_remote_images
         - allow_image_upload
         - reply_notify_enabled
+        - gravatar_enabled
         - misskey_instance_url
         - markdown
         - turnstile_site_key
@@ -659,6 +733,9 @@ components:
         reply_notify_enabled:
           type: boolean
           description: True when a visitor reply email provider (Resend/HTTP) is configured.
+        gravatar_enabled:
+          type: boolean
+          description: True when public comments may include direct Gravatar avatar_url links derived from SHA-256 of normalized email.
         misskey_instance_url:
           type: [string, "null"]
           description: "Optional Misskey instance origin used for MFM @mention/#hashtag links and client-side direct :emoji: resolution (no server-side emoji cache)."
@@ -737,6 +814,9 @@ components:
           type: [integer, "null"]
           minimum: 0
           maximum: 359
+        avatar_url:
+          type: [string, "null"]
+          description: "Optional direct Gravatar URL (https://gravatar.com/avatar/<sha256>?s=96&d=404&r=g) when gravatar_enabled is true and the comment is non-placeholder with an avatar hash; null otherwise."
         is_admin:
           type: boolean
         content_html:

@@ -6,9 +6,20 @@ import {
 import { renderCommentContent } from "../../markdown/index.ts";
 import { decodeCursor, encodeCursor } from "../../shared/cursor.ts";
 import { AppError, jsonResponse } from "../../shared/errors.ts";
-import { computeAvatarHue, generateId } from "../../shared/id.ts";
-import { normalizeHttpUrl, normalizePath } from "../../shared/path.ts";
+import {
+  AVATAR_HASH_RE,
+  computeAvatarHue,
+  generateId,
+  sha256Hex,
+} from "../../shared/id.ts";
+import {
+  normalizeEmail,
+  normalizeHttpUrl,
+  normalizePath,
+} from "../../shared/path.ts";
 import type {
+  AdminAvatarBackfillReport,
+  AdminAvatarBackfillRequest,
   AdminCommentCounts,
   AdminCommentPage,
   AdminCreateCommentRequest,
@@ -196,24 +207,27 @@ export async function handleAdminCreateComment(
     misskeyInstanceUrl: cfg.misskeyInstanceUrl,
   });
   const avatarHue = computeAvatarHue(authorName);
+  const adminEmail = normalizeEmail(cfg.adminNotifyEmail);
+  const avatarHash = adminEmail ? await sha256Hex(adminEmail) : null;
   const origin = new URL(request.url).origin;
 
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO comments
        (id, path, parent_id, root_id, status, author_name, author_email, author_url,
-        avatar_hue, is_admin, notify_on_reply, syntax, content_markdown, content_html,
+        avatar_hue, avatar_hash, is_admin, notify_on_reply, syntax, content_markdown, content_html,
         import_source, import_external_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?, 1, 0, ?, ?, ?, NULL, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, NULL, NULL, ?, ?)`,
     ).bind(
       id,
       canonicalPath,
       parentId,
       rootId,
       authorName,
-      cfg.adminNotifyEmail,
+      adminEmail,
       authorUrl,
       avatarHue,
+      avatarHash,
       syntax,
       contentMarkdown,
       contentHtml,
@@ -357,6 +371,7 @@ export async function handleAdminUpdateComment(
            author_name = NULL,
            author_email = NULL,
            author_url = NULL,
+           avatar_hash = NULL,
            is_admin = 0,
            notify_on_reply = 0,
            content_markdown = NULL,
@@ -476,5 +491,143 @@ export async function handleAdminImport(
     dryRun,
     misskeyInstanceUrl: cfg.misskeyInstanceUrl,
   });
+  return jsonResponse(report, { headers: NO_STORE_HEADERS });
+}
+
+export async function handleAdminBackfillAvatars(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  requireAdminAuth(request, env);
+  const url = new URL(request.url);
+  const dryRun = url.searchParams.get("dry_run") === "true";
+  const body = await readJsonBody<AdminAvatarBackfillRequest>(
+    request,
+    2 * 1024 * 1024,
+  );
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !Array.isArray(body.items) ||
+    body.items.length > 5000
+  ) {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "Field 'items' must be an array of at most 5000 backfill entries.",
+    );
+  }
+
+  const normalizedItems: Array<{
+    key: string;
+    avatarHash: string;
+  }> = [];
+  const seenKeys = new Set<string>();
+
+  for (let i = 0; i < body.items.length; i++) {
+    const item = body.items[i] as unknown;
+    if (typeof item !== "object" || item === null) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `items[${i}] must be an object.`,
+      );
+    }
+    const entry = item as Record<string, unknown>;
+    const source =
+      typeof entry.import_source === "string" ? entry.import_source.trim() : "";
+    const externalId =
+      typeof entry.import_external_id === "string"
+        ? entry.import_external_id.trim()
+        : "";
+    const avatarHash =
+      typeof entry.avatar_hash === "string" ? entry.avatar_hash.trim() : "";
+
+    if (!source || !externalId || !AVATAR_HASH_RE.test(avatarHash)) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `items[${i}] must provide import_source, import_external_id, and a 64-char lowercase hex SHA-256 avatar_hash.`,
+      );
+    }
+    const key = `${source}:${externalId}`;
+    if (seenKeys.has(key)) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `Duplicate backfill key in request: ${key}.`,
+      );
+    }
+    seenKeys.add(key);
+    normalizedItems.push({ key, avatarHash });
+  }
+
+  const { results: rows } = await env.DB.prepare(
+    `SELECT id, status, avatar_hash, import_source, import_external_id
+     FROM comments
+     WHERE import_source IS NOT NULL AND import_external_id IS NOT NULL`,
+  ).all<{
+    id: string;
+    status: CommentStatus;
+    avatar_hash: string | null;
+    import_source: string;
+    import_external_id: string;
+  }>();
+
+  const rowBySourceKey = new Map<
+    string,
+    { id: string; status: CommentStatus; avatar_hash: string | null }
+  >();
+  for (const row of rows) {
+    rowBySourceKey.set(`${row.import_source}:${row.import_external_id}`, {
+      id: row.id,
+      status: row.status,
+      avatar_hash: row.avatar_hash,
+    });
+  }
+
+  let updated = 0;
+  let skippedAlreadySet = 0;
+  let skippedNonPublic = 0;
+  let unmatched = 0;
+  const statements: D1PreparedStatement[] = [];
+
+  for (const item of normalizedItems) {
+    const target = rowBySourceKey.get(item.key);
+    if (!target) {
+      unmatched++;
+      continue;
+    }
+    if (target.status !== "approved") {
+      skippedNonPublic++;
+      continue;
+    }
+    if (target.avatar_hash) {
+      skippedAlreadySet++;
+      continue;
+    }
+    updated++;
+    statements.push(
+      env.DB.prepare(
+        `UPDATE comments
+         SET avatar_hash = ?
+         WHERE id = ? AND status = 'approved' AND avatar_hash IS NULL`,
+      ).bind(item.avatarHash, target.id),
+    );
+  }
+
+  if (!dryRun && statements.length > 0) {
+    await env.DB.batch(statements);
+  }
+
+  const report: AdminAvatarBackfillReport = {
+    dry_run: dryRun,
+    total: normalizedItems.length,
+    updated,
+    skipped_already_set: skippedAlreadySet,
+    skipped_non_public: skippedNonPublic,
+    unmatched,
+  };
   return jsonResponse(report, { headers: NO_STORE_HEADERS });
 }
