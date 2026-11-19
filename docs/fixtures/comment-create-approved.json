@@ -4,7 +4,7 @@
   "parent_id": null,
   "root_id": null,
   "status": "approved",
-  "verification_sent": false,
+  "verification_queued": false,
   "comment": {
     "id": "01JDM9B2C3D4E5F6G7H8J9K0L1",
     "path": "/about/",

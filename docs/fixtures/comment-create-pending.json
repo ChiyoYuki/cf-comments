@@ -4,6 +4,6 @@
   "parent_id": null,
   "root_id": null,
   "status": "pending",
-  "verification_sent": true,
+  "verification_queued": true,
   "comment": null
 }

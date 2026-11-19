@@ -16,9 +16,9 @@ tags:
   - name: Public
     description: Endpoints used by the embeddable comment widget
   - name: Subscriptions
-    description: Visitor email verification and unsubscribe endpoints
+    description: Safe two-step (GET confirmation page + POST mutation) visitor email verification and unsubscribe endpoints
   - name: Admin
-    description: Same-origin moderation and data portability endpoints
+    description: "Same-origin moderation and data portability endpoints (all return Cache-Control: no-store)"
 
 paths:
   /v1/config:
@@ -58,7 +58,7 @@ paths:
         - name: reply_limit
           in: query
           required: false
-          description: Number of initial replies to inline per root thread.
+          description: Number of initial replies to inline per root thread (0 allows lazy-loading first page via /v1/comments/{id}/replies without cursor).
           schema:
             type: integer
             minimum: 0
@@ -79,7 +79,7 @@ paths:
             type: string
       responses:
         "200":
-          description: Paginated list of root comment threads
+          description: Paginated list of visible root comment threads (excluding pending subtrees)
           content:
             application/json:
               schema:
@@ -105,7 +105,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCommentResponse"
         "202":
-          description: Comment accepted and queued for moderation (status = pending)
+          description: Comment accepted and queued for moderation (status = pending, comment = null)
           content:
             application/json:
               schema:
@@ -122,13 +122,13 @@ paths:
   /v1/comments/{id}/replies:
     get:
       tags: [Public]
-      summary: List paginated replies within a root comment thread
+      summary: List paginated replies within a visible root comment thread (including placeholder roots)
       operationId: listReplies
       parameters:
         - name: id
           in: path
           required: true
-          description: Root comment ID.
+          description: Root comment ID (may be a visible placeholder root).
           schema:
             type: string
         - name: limit
@@ -142,11 +142,12 @@ paths:
         - name: cursor
           in: query
           required: false
+          description: Omit to fetch the first page of replies (e.g. when listComments used reply_limit=0).
           schema:
             type: string
       responses:
         "200":
-          description: Chronologically ordered replies in the thread
+          description: Chronologically ordered replies (and connecting placeholders) in the thread
           content:
             application/json:
               schema:
@@ -159,7 +160,7 @@ paths:
   /v1/preview:
     post:
       tags: [Public]
-      summary: Render sanitized GFM + MFM HTML preview using the server renderer
+      summary: Render sanitized GFM + MFM HTML fragment preview using the server renderer
       operationId: previewMarkdown
       requestBody:
         required: true
@@ -175,7 +176,7 @@ paths:
                   maxLength: 10000
       responses:
         "200":
-          description: Rendered sanitized HTML
+          description: Rendered sanitized HTML fragment (frontend wraps in .cc-md)
           content:
             application/json:
               schema:
@@ -194,8 +195,8 @@ paths:
   /v1/subscriptions/verify:
     get:
       tags: [Subscriptions]
-      summary: Verify a visitor email for reply notifications (double opt-in)
-      operationId: verifySubscription
+      summary: Render read-only HTML confirmation page for verifying a visitor email (RFC 9110 safe GET)
+      operationId: getVerifySubscriptionPage
       parameters:
         - name: token
           in: query
@@ -204,7 +205,49 @@ paths:
             type: string
       responses:
         "200":
-          description: Subscription verified (HTML confirmation page or JSON when Accept includes application/json)
+          description: "HTML confirmation page with POST form (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+
+    post:
+      tags: [Subscriptions]
+      summary: Consume verification token and mark visitor email as verified
+      operationId: confirmVerifySubscription
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              additionalProperties: false
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: "Email verified (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
@@ -223,8 +266,8 @@ paths:
   /v1/subscriptions/unsubscribe:
     get:
       tags: [Subscriptions]
-      summary: Unsubscribe a visitor email from future reply notifications
-      operationId: unsubscribe
+      summary: Render read-only HTML confirmation page for unsubscribing (RFC 9110 safe GET)
+      operationId: getUnsubscribePage
       parameters:
         - name: token
           in: query
@@ -233,7 +276,49 @@ paths:
             type: string
       responses:
         "200":
-          description: Unsubscribed successfully
+          description: "HTML confirmation page with POST form (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+
+    post:
+      tags: [Subscriptions]
+      summary: Consume unsubscribe token and disable future reply notifications
+      operationId: confirmUnsubscribe
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              additionalProperties: false
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: "Unsubscribed successfully (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
@@ -290,7 +375,12 @@ paths:
             type: string
       responses:
         "200":
-          description: Paginated admin comments list
+          description: "Paginated admin comments list (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
@@ -329,7 +419,12 @@ paths:
                   maxLength: 10000
       responses:
         "201":
-          description: Admin comment created as approved
+          description: "Admin comment created as approved (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
@@ -348,7 +443,7 @@ paths:
   /v1/admin/comments/{id}:
     patch:
       tags: [Admin]
-      summary: Moderate a comment (approve, hide, mark spam, or delete)
+      summary: Moderate a comment (approve, hide, mark spam, soft-delete, or hard-delete leaf)
       operationId: adminUpdateComment
       security:
         - adminBearer: []
@@ -366,7 +461,12 @@ paths:
               $ref: "#/components/schemas/AdminUpdateCommentRequest"
       responses:
         "200":
-          description: Updated comment state
+          description: "Updated comment state (soft-delete or status transition; Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
@@ -375,17 +475,26 @@ paths:
                 properties:
                   comment:
                     $ref: "#/components/schemas/AdminComment"
+        "204":
+          description: Leaf comment permanently hard-deleted (no response body)
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
         "400":
           $ref: "#/components/responses/ErrorResponse"
         "401":
           $ref: "#/components/responses/ErrorResponse"
         "404":
           $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
 
   /v1/admin/export:
     get:
       tags: [Admin]
-      summary: Export comments in standard cf-comments v1 JSON format
+      summary: Export comments in standard cf-comments v1 JSON format (admin backup)
       operationId: adminExportComments
       security:
         - adminBearer: []
@@ -393,17 +502,22 @@ paths:
         - name: include_private
           in: query
           required: false
-          description: When false (default), author_email is omitted.
+          description: When false (default), exports email-omitted admin backup (still contains non-public comment bodies).
           schema:
             type: boolean
             default: false
       responses:
         "200":
-          description: Standard export JSON conforming to schemas/export.schema.json
+          description: "Standard export JSON conforming to schemas/export.schema.json (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
-                type: object
+                $ref: "#/components/schemas/CanonicalExport"
         "401":
           $ref: "#/components/responses/ErrorResponse"
 
@@ -426,10 +540,15 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: "#/components/schemas/CanonicalExport"
       responses:
         "200":
-          description: Import or dry-run reconciliation report
+          description: "Import or dry-run reconciliation report (Cache-Control: no-store)"
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
@@ -466,6 +585,8 @@ components:
         - PARENT_NOT_FOUND
         - PARENT_PATH_MISMATCH
         - INVALID_CURSOR
+        - INVALID_STATE_TRANSITION
+        - HAS_CHILD_COMMENTS
         - SPAM_DETECTED
         - TURNSTILE_FAILED
         - RATE_LIMITED
@@ -591,6 +712,7 @@ components:
           type: boolean
         content_html:
           type: [string, "null"]
+          description: Inner sanitized HTML fragment (frontend wraps in .cc-md). Null when placeholder.
         reply_to_author:
           type: [string, "null"]
           description: Display name of the direct parent author when replying inside a thread and parent is visible.
@@ -610,13 +732,14 @@ components:
             reply_count:
               type: integer
               minimum: 0
-              description: Count of approved (non-placeholder) replies in this thread.
+              description: Count of publicly visible approved replies in this thread (excludes placeholders and replies blocked by a pending ancestor).
             replies:
               type: array
               items:
                 $ref: "#/components/schemas/PublicComment"
             replies_next_cursor:
               type: [string, "null"]
+              description: Cursor for next page of replies; null when no more pages or when reply_limit=0 (use GET /v1/comments/{id}/replies without cursor).
 
     CommentThreadPage:
       type: object
@@ -628,7 +751,7 @@ components:
         total_approved:
           type: integer
           minimum: 0
-          description: Total approved comments on this page (root + replies, excluding placeholders).
+          description: Total publicly visible approved comments on this page (excludes placeholders and nodes blocked by pending ancestors).
         items:
           type: array
           items:
@@ -684,7 +807,7 @@ components:
 
     CreateCommentResponse:
       type: object
-      required: [id, path, parent_id, root_id, status, verification_sent, comment]
+      required: [id, path, parent_id, root_id, status, verification_queued, comment]
       properties:
         id:
           type: string
@@ -697,9 +820,9 @@ components:
         status:
           type: string
           enum: [approved, pending]
-        verification_sent:
+        verification_queued:
           type: boolean
-          description: True if a double-opt-in verification email was queued for author_email.
+          description: True if a double-opt-in verification email was enqueued in email_outbox (UI should indicate queued, not delivered).
         comment:
           description: Present when status is approved (201); null when pending moderation (202).
           oneOf:
@@ -789,16 +912,20 @@ components:
 
     AdminUpdateCommentRequest:
       type: object
+      required: [status]
       additionalProperties: false
       properties:
         status:
           type: string
           enum: [approved, pending, hidden, spam, deleted]
-          description: Setting status to deleted permanently clears content and author identity while preserving tree skeleton if children exist.
+          description: Target moderation status. Transitioning out of deleted is rejected with 409 INVALID_STATE_TRANSITION.
         hard_delete:
           type: boolean
           default: false
-          description: Allowed only when status is deleted and the comment has zero children.
+          description: Allowed only when status is deleted. Deletes leaf row (returns 204) or fails with 409 HAS_CHILD_COMMENTS if children exist.
+
+    CanonicalExport:
+      $ref: "../schemas/export.schema.json"
 
     ImportReport:
       type: object
