@@ -28,6 +28,13 @@ const syntaxDocs = {
   mfm: "https://misskey-hub.net/en/docs/for-users/features/mfm/",
 };
 
+let previewModule: Promise<typeof import("./preview.ts")> | undefined;
+
+function loadPreview(): Promise<typeof import("./preview.ts")> {
+  previewModule ??= import(new URL("./preview.js", import.meta.url).href);
+  return previewModule;
+}
+
 class Widget {
   readonly controller = new AbortController();
   readonly signal = this.controller.signal;
@@ -152,9 +159,9 @@ class Widget {
     this.count.textContent = `${this.total} ${this.text.count}`;
   }
 
-  showContent(target: HTMLElement, html: string): void {
+  showContent(target: HTMLElement, html: string, signal = this.signal): void {
     renderContent(target, html, {
-      signal: this.signal,
+      signal,
       locale: this.locale,
       images: true,
       emoji: this.emoji,
@@ -449,7 +456,9 @@ class Widget {
       config.markdown.syntax_modes,
     );
     const toolbar = element("div", "cc-row cc-toolbar");
-    const preview = button(this.text.preview);
+    const preview = button(this.text.preview, "cc-button cc-preview-toggle");
+    preview.setAttribute("aria-pressed", "false");
+    preview.setAttribute("aria-controls", "cc-live-preview");
     const post = button(this.text.post, "cc-button cc-filled");
     post.type = "submit";
     const remaining = element("span", "cc-remaining");
@@ -472,40 +481,55 @@ class Widget {
     actions.append(preview, remaining, post);
     toolbar.append(tools, actions);
     const previewBox = element("div", "cc-md cc-preview");
+    previewBox.id = "cc-live-preview";
     previewBox.hidden = true;
     previewBox.setAttribute("role", "region");
     previewBox.setAttribute("aria-label", this.text.preview);
-    let previewRequest: AbortController | undefined;
-    const clearPreview = () => {
-      previewRequest?.abort();
-      previewBox.hidden = true;
-      previewBox.replaceChildren();
+    let previewTimer: ReturnType<typeof setTimeout> | undefined;
+    let previewRender: AbortController | undefined;
+    const cancelPreview = () => {
+      clearTimeout(previewTimer);
+      previewRender?.abort();
+      previewRender = undefined;
     };
-    preview.addEventListener("click", async () => {
-      if (!this.input.reportValidity()) return;
-      previewRequest?.abort();
-      previewRequest = new AbortController();
-      const signal = AbortSignal.any([this.signal, previewRequest.signal]);
-      previewBox.hidden = false;
-      previewBox.textContent = this.text.previewLoading;
+    this.signal.addEventListener("abort", cancelPreview, { once: true });
+    const renderPreview = async (signal: AbortSignal) => {
       try {
-        const response = await this.api.json<{ html: string }>("/v1/preview", {
-          method: "POST",
-          signal,
-          body: {
-            content: this.input.value,
-            syntax: syntaxValue(new FormData(this.form)),
-          },
-        });
-        if (!signal.aborted) this.showContent(previewBox, response.html);
-      } catch (error) {
-        if (!signal.aborted)
-          previewBox.textContent = errorMessage(error, this.text.previewError);
+        const { renderCommentContent } = await loadPreview();
+        if (signal.aborted) return;
+        const value = this.input.value;
+        if (!value.trim()) {
+          previewBox.textContent = this.text.previewEmpty;
+          return;
+        }
+        const html = renderCommentContent(
+          value,
+          syntaxValue(new FormData(this.form)),
+          { misskeyInstanceUrl: config.misskey_instance_url },
+        );
+        this.showContent(previewBox, html, signal);
+      } catch {
+        if (!signal.aborted) previewBox.textContent = this.text.previewError;
       }
+    };
+    const schedulePreview = (delay = 100) => {
+      cancelPreview();
+      if (previewBox.hidden) return;
+      previewRender = new AbortController();
+      const { signal } = previewRender;
+      if (delay === 0) void renderPreview(signal);
+      else previewTimer = setTimeout(() => void renderPreview(signal), delay);
+    };
+    preview.addEventListener("click", () => {
+      const open = previewBox.hidden;
+      previewBox.hidden = !open;
+      preview.setAttribute("aria-pressed", String(open));
+      previewBox.textContent = open ? this.text.previewLoading : "";
+      schedulePreview(0);
     });
     this.input.addEventListener("input", () => {
       updateRemaining();
-      clearPreview();
+      schedulePreview();
     });
     const updateSyntaxHelp = () => {
       const mode = syntaxValue(new FormData(this.form));
@@ -516,7 +540,7 @@ class Widget {
       help.textContent = this.text[mode];
     };
     syntax.addEventListener("change", () => {
-      clearPreview();
+      schedulePreview();
       updateSyntaxHelp();
     });
     this.form.append(
@@ -573,7 +597,7 @@ class Widget {
         this.input.value = "";
         updateRemaining();
         this.setParent(null);
-        clearPreview();
+        schedulePreview(0);
         this.notice.textContent = [
           result.status === "pending" ? this.text.pending : this.text.posted,
           result.verification_queued ? this.text.queued : "",

@@ -214,6 +214,10 @@
   background: var(--md-sys-color-surface);
   padding: 0.375rem 0.625rem;
 }
+.cc-widget .cc-preview-toggle[aria-pressed="true"] {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
 .cc-toolbar {
   justify-content: space-between;
   column-gap: 0.75rem;

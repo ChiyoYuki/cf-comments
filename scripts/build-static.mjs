@@ -9,6 +9,7 @@ await build({
   absWorkingDir: root,
   entryPoints: {
     "assets/v1/comments": "src/client/comments.ts",
+    "assets/v1/preview": "src/client/preview.ts",
     "admin/admin": "src/admin/admin.ts",
   },
   outdir: fileURLToPath(output),

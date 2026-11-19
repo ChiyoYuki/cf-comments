@@ -2,6 +2,7 @@
 
 ## 任务索引
 
+- [2026-11-19 — 按需加载浏览器实时预览](2026-11-19-comments-live-preview.md)
 - [2026-11-19 — 恢复表单色调并完善评论交互](2026-11-19-comments-misskey-touches.md)
 - [2026-11-19 — 调整发评表单的默认展示](2026-11-19-comment-form-defaults.md)
 - [2026-11-19 — 打磨评论区 Material 3 排版与交互](2026-11-19-comments-md3-polish.md)

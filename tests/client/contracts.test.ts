@@ -5,11 +5,13 @@ import { ApiError, createApi, httpUrl } from "../../src/client/api.ts";
 import { avatarInitial, commentAvatarUrl } from "../../src/client/avatar.ts";
 import { formatCommentTime, formatTime } from "../../src/client/content.ts";
 import { createEmojiResolver } from "../../src/client/emoji.ts";
+import { renderCommentContent as renderPreview } from "../../src/client/preview.ts";
 import {
   arrangeReplies,
   hasMoreReplies,
   mergeById,
 } from "../../src/client/threads.ts";
+import { renderCommentContent } from "../../src/markdown/index.ts";
 import type { CommentThreadPage, ReplyPage } from "../../src/shared/types.ts";
 
 function fixture<Data>(name: string): Data {
@@ -20,6 +22,16 @@ function fixture<Data>(name: string): Data {
     ),
   );
 }
+
+test("live preview shares the same sanitized Markdown renderer as publishing", () => {
+  assert.equal(renderPreview, renderCommentContent);
+  assert.match(renderPreview("~~review~~", "gfm"), /<del>review<\/del>/);
+  const mfm = renderPreview("$[blur spoiler] :blobcat:", "mfm", {
+    misskeyInstanceUrl: "https://misskey.example.com",
+  });
+  assert.match(mfm, /class="mfm-blur"/);
+  assert.match(mfm, /data-emoji="blobcat"/);
+});
 
 test("reader comment dates use local relative time through seven days", () => {
   const now = Date.parse("2026-11-19T12:00:00Z");

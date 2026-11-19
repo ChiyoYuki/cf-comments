@@ -23,6 +23,8 @@ Lightweight, self-hosted, general-purpose comment system built on Cloudflare Wor
 
 Run `pnpm run build` before deploying; it bundles the widget and `/admin/` with the Worker. Use `pnpm run test:client` to test the browser-side request and thread logic.
 
+Publish `comments.js`, `comments.css`, and `preview.js` together under `/assets/v1/`. The widget loads `preview.js` only when readers turn on live preview. It renders GFM and MFM locally without calling `/v1/preview`; submitted comments are still rendered and sanitized on the server.
+
 ```html
 <script type="module" src="https://comments.example.com/assets/v1/comments.js"></script>
 <cf-comments api-base="https://comments.example.com" path="/about/" lang="en"></cf-comments>
