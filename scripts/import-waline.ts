@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loadProjectConfig } from "../src/config/load-config.ts";
 import { validateCanonicalExport } from "../src/importers/canonical.ts";
 import {
   convertWalineToCanonical,
@@ -11,8 +12,9 @@ interface CliOptions {
   out?: string;
   skipPaths: string[];
   includePrivate: boolean;
-  siteUrl: string;
+  siteUrl?: string;
   dryRun: boolean;
+  configPath?: string;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -20,8 +22,9 @@ function parseArgs(argv: string[]): CliOptions {
   let out: string | undefined;
   const skipPaths: string[] = [];
   let includePrivate = false;
-  let siteUrl = "https://blog.chiyo.uk";
+  let siteUrl: string | undefined;
   let dryRun = false;
+  let configPath: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -52,9 +55,13 @@ function parseArgs(argv: string[]): CliOptions {
     } else if (arg === "--include-private") {
       includePrivate = true;
     } else if (arg === "--site" && argv[i + 1]) {
-      siteUrl = argv[++i] ?? siteUrl;
+      siteUrl = argv[++i];
     } else if (arg.startsWith("--site=")) {
       siteUrl = arg.slice("--site=".length);
+    } else if (arg === "--config" && argv[i + 1]) {
+      configPath = argv[++i];
+    } else if (arg.startsWith("--config=")) {
+      configPath = arg.slice("--config=".length);
     } else if (arg === "--dry-run") {
       dryRun = true;
     } else if (!arg.startsWith("--") && !input) {
@@ -64,23 +71,30 @@ function parseArgs(argv: string[]): CliOptions {
 
   if (!input) {
     console.error(
-      "Usage: pnpm run import:waline -- --input <waline.json> [--skip-paths=/] [--include-private] [--out <canonical.json>] [--dry-run]",
+      "Usage: pnpm run import:waline -- --input <waline.json> [--config <cf-comments.config.json>] [--site <url>] [--skip-paths=/] [--include-private] [--out <canonical.json>] [--dry-run]",
     );
     process.exit(1);
   }
 
-  return { input, out, skipPaths, includePrivate, siteUrl, dryRun };
+  return { input, out, skipPaths, includePrivate, siteUrl, dryRun, configPath };
 }
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  const projectConfig = loadProjectConfig(opts.configPath);
+  const resolvedSiteUrl =
+    opts.siteUrl ??
+    (projectConfig.siteUrl !== "https://example.com"
+      ? projectConfig.siteUrl
+      : undefined);
+
   const rawText = await readFile(path.resolve(opts.input), "utf8");
   const waline = JSON.parse(rawText) as WalineExportPayload;
 
   const result = convertWalineToCanonical(waline, {
     includePrivate: opts.includePrivate,
     skipPaths: opts.skipPaths,
-    siteUrl: opts.siteUrl,
+    ...(resolvedSiteUrl ? { siteUrl: resolvedSiteUrl } : {}),
   });
 
   if (result.errors.length > 0) {

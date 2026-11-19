@@ -6,6 +6,7 @@ dist/
 .env
 .env.*
 !.env.example
+cf-comments.config.json
 *.log
 .DS_Store
 coverage/

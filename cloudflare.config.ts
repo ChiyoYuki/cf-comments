@@ -1,33 +1,22 @@
 import { bindings, defineConfig, triggers } from "@cloudflare/config";
+import { loadProjectConfig } from "./src/config/load-config.ts";
 
 export default defineConfig(({ mode }) => {
+  const cfg = loadProjectConfig();
   const isStaging = mode === "staging";
-  const siteUrl = process.env.CF_SITE_URL || "https://blog.chiyo.uk";
-  const allowedOrigins =
-    process.env.CF_ALLOWED_ORIGINS ||
-    (isStaging ? `${siteUrl},http://localhost:4321` : siteUrl);
-  const adminNotifyEmail = process.env.CF_ADMIN_NOTIFY_EMAIL || "";
-  const adminEmailProvider = process.env.CF_ADMIN_EMAIL_PROVIDER || "none";
-  const replyEmailProvider = process.env.CF_REPLY_EMAIL_PROVIDER || "none";
-  const d1Id = isStaging
-    ? process.env.CF_D1_STAGING_DATABASE_ID
-    : process.env.CF_D1_DATABASE_ID;
-  const d1Name = isStaging ? "cf-comments-staging" : "cf-comments";
-  const prodDomain = process.env.CF_COMMENTS_DOMAIN || "comments.chiyo.uk";
-  const stagingDomain = process.env.CF_STAGING_DOMAIN || "";
-
-  const domains = isStaging
-    ? stagingDomain
-      ? [stagingDomain]
-      : undefined
-    : [prodDomain];
+  const d1Name = isStaging ? cfg.d1StagingDatabaseName : cfg.d1DatabaseName;
+  const d1Id = isStaging ? cfg.d1StagingDatabaseId : cfg.d1DatabaseId;
+  const domain = isStaging ? cfg.stagingDomain : cfg.commentsDomain;
+  const allowedOrigins = isStaging
+    ? [...new Set([...cfg.allowedOrigins, "http://localhost:4321"])]
+    : cfg.allowedOrigins;
 
   return {
     worker: {
-      name: isStaging ? "cf-comments-staging" : "cf-comments",
+      name: isStaging ? cfg.stagingWorkerName : cfg.workerName,
       compatibilityDate: "2026-10-01",
       entrypoint: "./src/worker/index.ts",
-      ...(domains ? { domains } : {}),
+      ...(domain ? { domains: [domain] } : {}),
       assets: {
         htmlHandling: "auto-trailing-slash",
         notFoundHandling: "none",
@@ -42,31 +31,25 @@ export default defineConfig(({ mode }) => {
           name: d1Name,
           ...(d1Id ? { id: d1Id } : {}),
         }),
-        ...(adminEmailProvider === "cf_email_routing" && adminNotifyEmail
+        ...(cfg.email.adminProvider === "cf_email_routing" &&
+        cfg.email.adminNotifyEmail
           ? {
               SEND_EMAIL: bindings.sendEmail({
-                destinationAddress: adminNotifyEmail,
+                destinationAddress: cfg.email.adminNotifyEmail,
               }),
             }
           : {}),
-        SITE_URL: bindings.text(siteUrl),
-        ALLOWED_ORIGINS: bindings.text(allowedOrigins),
-        MODERATION_MODE: bindings.text(process.env.CF_MODERATION_MODE || "pre"),
-        MAX_CONTENT_LENGTH: bindings.text(
-          process.env.CF_MAX_CONTENT_LENGTH || "4000",
-        ),
-        TURNSTILE_SITE_KEY: bindings.text(
-          process.env.CF_TURNSTILE_SITE_KEY || "",
-        ),
-        ADMIN_EMAIL_PROVIDER: bindings.text(adminEmailProvider),
-        REPLY_EMAIL_PROVIDER: bindings.text(replyEmailProvider),
-        EMAIL_FROM: bindings.text(
-          process.env.CF_EMAIL_FROM || "comments@chiyo.uk",
-        ),
-        ADMIN_NOTIFY_EMAIL: bindings.text(adminNotifyEmail),
-        EMAIL_HTTP_ENDPOINT: bindings.text(
-          process.env.CF_EMAIL_HTTP_ENDPOINT || "",
-        ),
+        SITE_URL: bindings.text(cfg.siteUrl),
+        ALLOWED_ORIGINS: bindings.text(allowedOrigins.join(",")),
+        MODERATION_MODE: bindings.text(cfg.moderationMode),
+        MAX_CONTENT_LENGTH: bindings.text(String(cfg.maxContentLength)),
+        MISSKEY_INSTANCE_URL: bindings.text(cfg.misskeyInstanceUrl),
+        TURNSTILE_SITE_KEY: bindings.text(cfg.turnstileSiteKey),
+        ADMIN_EMAIL_PROVIDER: bindings.text(cfg.email.adminProvider),
+        REPLY_EMAIL_PROVIDER: bindings.text(cfg.email.replyProvider),
+        EMAIL_FROM: bindings.text(cfg.email.from),
+        ADMIN_NOTIFY_EMAIL: bindings.text(cfg.email.adminNotifyEmail),
+        EMAIL_HTTP_ENDPOINT: bindings.text(cfg.email.httpEndpoint),
         ADMIN_TOKEN: bindings.secret(),
         TOKEN_SIGNING_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),

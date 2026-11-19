@@ -1,4 +1,5 @@
 import type { SendEmailBindingLike } from "../email/providers.ts";
+import { isSafeHttpUrl } from "../markdown/sanitize-schema.ts";
 import type {
   AdminEmailProviderKind,
   ModerationMode,
@@ -20,6 +21,7 @@ export interface WorkerEnv {
   ALLOWED_ORIGINS?: string;
   MODERATION_MODE?: string;
   MAX_CONTENT_LENGTH?: string;
+  MISSKEY_INSTANCE_URL?: string;
   TURNSTILE_SITE_KEY?: string;
   ADMIN_EMAIL_PROVIDER?: string;
   REPLY_EMAIL_PROVIDER?: string;
@@ -40,6 +42,7 @@ export interface RuntimeConfig {
   allowedOrigins: Set<string>;
   moderationMode: ModerationMode;
   maxContentLength: number;
+  misskeyInstanceUrl: string | null;
   turnstileSiteKey: string | null;
   turnstileSecretKey: string | null;
   adminEmailProvider: AdminEmailProviderKind;
@@ -51,7 +54,7 @@ export interface RuntimeConfig {
 }
 
 export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
-  const siteUrl = (env.SITE_URL || "https://blog.chiyo.uk").replace(/\/$/, "");
+  const siteUrl = (env.SITE_URL || "https://example.com").replace(/\/$/, "");
   const allowedOrigins = new Set(
     (env.ALLOWED_ORIGINS || siteUrl)
       .split(",")
@@ -67,6 +70,11 @@ export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
     Number.isFinite(parsedMax) && parsedMax >= 100 && parsedMax <= 10000
       ? parsedMax
       : 4000;
+
+  const misskeyRaw = env.MISSKEY_INSTANCE_URL?.trim();
+  const misskeyInstanceUrl = misskeyRaw
+    ? (isSafeHttpUrl(misskeyRaw)?.replace(/\/$/, "") ?? null)
+    : null;
 
   const adminProviderRaw = env.ADMIN_EMAIL_PROVIDER || "none";
   const adminEmailProvider: AdminEmailProviderKind =
@@ -87,11 +95,12 @@ export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
     allowedOrigins,
     moderationMode,
     maxContentLength,
+    misskeyInstanceUrl,
     turnstileSiteKey: env.TURNSTILE_SITE_KEY?.trim() || null,
     turnstileSecretKey: env.TURNSTILE_SECRET_KEY?.trim() || null,
     adminEmailProvider,
     replyEmailProvider,
-    emailFrom: env.EMAIL_FROM?.trim() || "comments@chiyo.uk",
+    emailFrom: env.EMAIL_FROM?.trim() || "comments@example.com",
     adminNotifyEmail: env.ADMIN_NOTIFY_EMAIL?.trim() || null,
     emailHttpEndpoint: env.EMAIL_HTTP_ENDPOINT?.trim() || null,
     tokenSigningSecret:
