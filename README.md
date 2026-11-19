@@ -19,6 +19,19 @@ Lightweight, self-hosted, general-purpose comment system built on Cloudflare Wor
 1. Copy `cf-comments.config.example.json` to `cf-comments.config.json` and fill in your site/domain/D1/Misskey/email settings (ignored by Git).
 2. Copy `.env.example` to `.dev.vars` for local secrets (ignored by Git).
 
+## Browser Integration
+
+Run `pnpm run build` before deploying; it bundles the widget and `/admin/` with the Worker. Use `pnpm run test:client` to test the browser-side request and thread logic.
+
+```html
+<script type="module" src="https://comments.example.com/assets/v1/comments.js"></script>
+<cf-comments api-base="https://comments.example.com" path="/about/" lang="en"></cf-comments>
+```
+
+Set `ALLOWED_ORIGINS` to include the embedding site's exact origin. For SPAs, load the module once outside the replaceable container; each widget initializes on connection and aborts its requests on removal. Pass the canonical path explicitly. Use `reply-limit="0"` to load replies only on demand. The widget supports English and Chinese, follows the system color scheme by default, and accepts `--cc-color-scheme`, `--cc-accent`, `--cc-on-accent`, and `--cc-card` overrides on the host.
+
+Open `/admin/` on the Worker origin and unlock it with `ADMIN_TOKEN`. The token is not persisted. The console blocks remote media until explicitly enabled for the current session. With a Misskey instance configured, the widget fetches emoji metadata directly from that instance; if the instance blocks cross-origin requests, the original emoji code remains visible.
+
 ## Contract & Specifications (v1)
 
 - [Frozen v1 Specification](docs/spec.md)

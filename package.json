@@ -9,13 +9,15 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.browser.json",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test:worker": "node --experimental-strip-types --test tests/worker/*.test.ts",
-    "test": "pnpm run test:worker",
+    "test:client": "node --experimental-strip-types --test --test-isolation=none tests/client/*.test.ts",
+    "test": "pnpm run test:worker && pnpm run test:client",
+    "build:static": "node scripts/build-static.mjs",
     "build:worker": "node scripts/build-worker.mjs",
-    "build": "pnpm run build:worker",
+    "build": "pnpm run build:static && pnpm run build:worker",
     "import:waline": "node --experimental-strip-types scripts/import-waline.ts",
     "dev": "cf dev --local",
     "deploy:staging": "cf deploy --prebuilt --mode staging",

@@ -20,5 +20,12 @@
     "scripts/**/*.ts",
     "tests/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", ".cloudflare"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".cloudflare",
+    "src/client",
+    "src/admin",
+    "tests/client"
+  ]
 }

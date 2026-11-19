@@ -1,0 +1,293 @@
+.cc-md {
+  overflow: hidden;
+  position: relative;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.cc-md > * + * {
+  margin-block-start: 0.75em;
+}
+.cc-md :where(h1, h2, h3, h4, h5, h6) {
+  font-size: 1.15em;
+  line-height: 1.4;
+}
+.cc-md :where(ul, ol) {
+  padding-inline-start: 1.5em;
+}
+.cc-md blockquote {
+  margin-inline: 0;
+  padding-inline-start: 0.8rem;
+  border-inline-start: 3px solid var(--md-sys-color-outline-variant);
+}
+.cc-md :where(code, pre) {
+  border-radius: 0.4em;
+  background: var(--md-sys-color-surface-container);
+  font-family: ui-monospace, monospace;
+}
+.cc-md code {
+  padding: 0.1em 0.25em;
+}
+.cc-md pre {
+  padding: 0.65em;
+  max-inline-size: 100%;
+  overflow: auto;
+  overflow-wrap: normal;
+}
+.cc-md pre code {
+  padding: 0;
+}
+.cc-md table {
+  display: block;
+  max-inline-size: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+.cc-md :where(th, td) {
+  padding: 0.35em 0.65em;
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+.cc-md :where(hr) {
+  border: 0;
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+}
+.cc-md .cc-img {
+  max-inline-size: 100%;
+  max-block-size: 32rem;
+  object-fit: contain;
+  border-radius: 0.75rem;
+}
+.cc-emoji-image {
+  inline-size: auto;
+  max-inline-size: 3em;
+  block-size: 1.35em;
+  object-fit: contain;
+  vertical-align: -0.25em;
+}
+.cc-image-placeholder {
+  display: inline-block;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875em;
+}
+.cc-spoiler {
+  border-radius: 0.5em;
+  border: 1px solid var(--md-sys-color-outline);
+  padding: 0.15em 0.5em;
+  background: var(--md-sys-color-surface-container);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cc-spoiler[aria-expanded="true"] {
+  margin-inline-end: 0.35em;
+}
+.mfm-center {
+  text-align: center;
+}
+.mfm-small {
+  font-size: 0.8em;
+}
+.mfm-font-serif {
+  font-family: serif;
+}
+.mfm-font-monospace {
+  font-family: monospace;
+}
+.mfm-font-cursive {
+  font-family: cursive;
+}
+.mfm-font-fantasy {
+  font-family: fantasy;
+}
+.mfm-font-emoji {
+  font-family: emoji, sans-serif;
+}
+.mfm-size {
+  line-height: 1.12;
+}
+.mfm-x2 {
+  font-size: 2em;
+}
+.mfm-x3 {
+  font-size: 3em;
+}
+.mfm-x4 {
+  font-size: 4em;
+}
+.mfm-size .mfm-size {
+  font-size: 1em;
+}
+:is(
+  .mfm-position,
+  .mfm-flip-h,
+  .mfm-flip-v,
+  .mfm-flip-hv,
+  .mfm-rotate,
+  .mfm-scale,
+  .mfm-anim
+) {
+  display: inline-block;
+  max-inline-size: 100%;
+}
+.mfm-position {
+  transform: translate(var(--mfm-px, 0), var(--mfm-py, 0));
+}
+.mfm-flip-h {
+  transform: scaleX(-1);
+}
+.mfm-flip-v {
+  transform: scaleY(-1);
+}
+.mfm-flip-hv {
+  transform: scale(-1);
+}
+.mfm-rotate {
+  transform: rotate(var(--mfm-deg, 90deg));
+}
+.mfm-scale {
+  transform: scale(var(--mfm-sx, 1), var(--mfm-sy, 1));
+}
+.mfm-border {
+  border: var(--mfm-border-width, 1px) var(--mfm-border-style, solid)
+    var(--mfm-border-color, currentColor);
+  border-radius: var(--mfm-border-radius, 0);
+  padding-inline: 0.25em;
+  overflow: hidden;
+}
+.mfm-unixtime {
+  font-variant-numeric: tabular-nums;
+}
+.mfm-anim {
+  animation: var(--cc-animation, none) var(--mfm-speed, 1s) var(--mfm-delay, 0s)
+    infinite var(--cc-direction, normal) ease-in-out;
+}
+.mfm-tada {
+  --cc-animation: cc-tada;
+}
+.mfm-jelly {
+  --cc-animation: cc-jelly;
+}
+.mfm-shake {
+  --cc-animation: cc-shake;
+}
+.mfm-spin {
+  --cc-animation: cc-spin;
+}
+.mfm-spin-x {
+  --cc-animation: cc-spin-x;
+}
+.mfm-spin-y {
+  --cc-animation: cc-spin-y;
+}
+.mfm-spin-left {
+  --cc-direction: reverse;
+}
+.mfm-spin-alternate {
+  --cc-direction: alternate;
+}
+.mfm-spin-left.mfm-spin-alternate {
+  --cc-direction: alternate-reverse;
+}
+.mfm-jump {
+  --cc-animation: cc-jump;
+}
+.mfm-bounce {
+  --cc-animation: cc-bounce;
+}
+.mfm-twitch {
+  --cc-animation: cc-twitch;
+}
+.mfm-rainbow {
+  --cc-animation: cc-rainbow;
+}
+.mfm-sparkle {
+  --cc-animation: cc-sparkle;
+}
+@keyframes cc-tada {
+  35% {
+    transform: scale(1.15) rotate(-8deg);
+  }
+  60% {
+    transform: scale(1.15) rotate(8deg);
+  }
+}
+@keyframes cc-jelly {
+  28% {
+    transform: scale(1.15, 0.85);
+  }
+  53% {
+    transform: scale(0.88, 1.12);
+  }
+  75% {
+    transform: scale(1.05, 0.95);
+  }
+}
+@keyframes cc-shake {
+  25%,
+  75% {
+    transform: translateX(-0.1em);
+  }
+  50% {
+    transform: translateX(0.1em);
+  }
+}
+@keyframes cc-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes cc-spin-x {
+  to {
+    transform: rotateX(1turn);
+  }
+}
+@keyframes cc-spin-y {
+  to {
+    transform: rotateY(1turn);
+  }
+}
+@keyframes cc-jump {
+  50% {
+    transform: translateY(-0.4em);
+  }
+}
+@keyframes cc-bounce {
+  40% {
+    transform: translateY(-0.35em);
+  }
+  65% {
+    transform: scale(1.1, 0.86);
+  }
+}
+@keyframes cc-twitch {
+  38%,
+  61% {
+    transform: translate(-0.12em, 0.1em) skewX(-5deg);
+  }
+  40%,
+  60% {
+    transform: translateX(0.12em);
+  }
+}
+@keyframes cc-rainbow {
+  0%,
+  100% {
+    color: light-dark(#93395a, #ffafcf);
+  }
+  33% {
+    color: light-dark(#326355, #78ddbe);
+  }
+  66% {
+    color: light-dark(#47558d, #b7c5ff);
+  }
+}
+@keyframes cc-sparkle {
+  50% {
+    text-shadow: 0 0 0.45em currentColor;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mfm-anim {
+    animation-play-state: paused;
+    animation-delay: 0s;
+  }
+}

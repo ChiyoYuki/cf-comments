@@ -1,0 +1,67 @@
+@import "../client/material.css";
+@import "../client/markdown.css";
+
+:root {
+  color-scheme: light dark;
+  background: light-dark(#faf8ff, #121318);
+}
+body {
+  margin: 0;
+}
+.cc-admin {
+  max-inline-size: 66rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 4vw, 3rem);
+}
+.cc-admin,
+.admin-console,
+.admin-section,
+.admin-list {
+  display: grid;
+  gap: 1rem;
+}
+.admin-heading {
+  padding-block: 0.75rem;
+}
+.admin-heading h1 {
+  font-size: clamp(2rem, 7vw, 3.25rem);
+  font-weight: 500;
+  line-height: 1.25;
+}
+.admin-kicker {
+  color: var(--md-sys-color-primary);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+.admin-between {
+  justify-content: space-between;
+}
+.admin-list {
+  list-style: none;
+  padding: 0;
+}
+.admin-list:empty {
+  display: none;
+}
+.admin-section > .cc-button,
+.admin-console > .cc-button {
+  justify-self: start;
+}
+.admin-meta {
+  overflow-wrap: anywhere;
+}
+.admin-section > .cc-md {
+  background: var(--md-sys-color-surface);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+.admin-section pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-reply {
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+  padding-block-start: 0.75rem;
+}

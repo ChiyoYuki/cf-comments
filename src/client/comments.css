@@ -1,0 +1,102 @@
+@import "./material.css";
+@import "./markdown.css";
+
+:host {
+  display: block;
+  color-scheme: var(--cc-color-scheme, light dark);
+}
+.cc-widget {
+  display: grid;
+  gap: 1rem;
+}
+.cc-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.cc-form,
+.cc-comment,
+.cc-thread {
+  display: grid;
+  gap: 0.75rem;
+}
+.cc-threads,
+.cc-replies {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+.cc-threads:empty,
+.cc-replies:empty {
+  display: none;
+}
+.cc-replies {
+  margin-inline-start: clamp(0.4rem, 3vw, 1.5rem);
+  border-inline-start: 1px solid var(--md-sys-color-outline-variant);
+  padding-inline-start: clamp(0.4rem, 3vw, 1.5rem);
+}
+.cc-replies > [data-depth="1"] {
+  margin-inline-start: clamp(0.375rem, 2vw, 1rem);
+}
+.cc-replies > [data-depth="2"] {
+  margin-inline-start: clamp(0.75rem, 4vw, 2rem);
+}
+.cc-avatar {
+  border-radius: 50%;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-weight: 700;
+  color: light-dark(
+    oklch(27% 0.09 var(--avatar-hue, 225)),
+    oklch(91% 0.04 var(--avatar-hue, 225))
+  );
+  background: light-dark(
+    oklch(90% 0.055 var(--avatar-hue, 225)),
+    oklch(38% 0.07 var(--avatar-hue, 225))
+  );
+}
+.cc-author,
+.cc-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cc-name {
+  font-weight: 650;
+}
+.cc-placeholder {
+  border-style: dashed;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+}
+.cc-reply-tools {
+  margin-inline-start: clamp(0.4rem, 3vw, 1.5rem);
+}
+.cc-reply-context {
+  margin-block-end: -0.5rem;
+}
+.cc-reply-target,
+.cc-preview {
+  border-radius: 0.75rem;
+  background: var(--md-sys-color-surface-container);
+  padding: 0.65rem 0.9rem;
+}
+.cc-toolbar .cc-filled {
+  margin-inline-start: auto;
+}
+.cc-captcha {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+  min-inline-size: 0;
+  overflow-x: auto;
+}
+.cc-comment .cc-button,
+.cc-widget > .cc-button {
+  justify-self: start;
+}

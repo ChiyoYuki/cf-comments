@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="robots" content="noindex, nofollow">
+    <title>评论审核 · cf-comments</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <script type="module" src="/admin/admin.js"></script>
+  </head>
+  <body>
+    <main class="cc-admin">
+      <header class="admin-heading">
+        <p class="admin-kicker">CF-COMMENTS</p>
+        <h1>评论审核</h1>
+        <p class="cc-muted">审核留言、发表站长回复和迁移评论数据。</p>
+      </header>
+      <p id="notice" class="cc-status" role="status" aria-atomic="true"></p>
+      <section id="login" class="cc-surface cc-raised admin-section" aria-labelledby="login-title">
+        <h2 id="login-title">解锁审核台</h2>
+        <form id="login-form" class="admin-section" method="post" autocomplete="off">
+          <label class="cc-field"><span>管理令牌</span><input id="token" type="password" autocomplete="off" required></label>
+          <p class="cc-muted">令牌只在当前页面内存中使用；刷新或锁定后需重新输入。</p>
+          <button class="cc-button cc-filled" type="submit" disabled>解锁</button>
+        </form>
+      </section>
+      <div id="console" class="admin-console" hidden>
+        <section class="cc-surface cc-raised admin-section" aria-labelledby="queue-title">
+          <div class="cc-row admin-between">
+            <h2 id="queue-title">审核队列</h2>
+            <button id="lock" class="cc-button cc-outlined" type="button">锁定</button>
+          </div>
+          <p id="counts" class="cc-muted"></p>
+          <form id="filters" class="admin-section">
+            <div class="cc-fields">
+              <label class="cc-field"><span>状态</span><select name="status">
+                <option value="">全部状态</option><option value="pending" selected>待审核</option><option value="approved">已通过</option>
+                <option value="hidden">已隐藏</option><option value="spam">垃圾评论</option><option value="deleted">已删除</option>
+              </select></label>
+              <label class="cc-field"><span>搜索昵称、正文或路径</span><input type="search" name="q" maxlength="120"></label>
+              <label class="cc-field"><span>限定页面路径</span><input name="path" placeholder="/about/" maxlength="512"></label>
+            </div>
+            <div class="cc-row admin-between">
+              <label class="cc-check"><input id="media" type="checkbox">本次加载外链图片和 Misskey 表情</label>
+              <button class="cc-button cc-filled" type="submit">筛选</button>
+            </div>
+          </form>
+        </section>
+        <p id="list-status" class="cc-status" role="status"></p>
+        <ol id="comments" class="admin-list"></ol>
+        <button id="next" class="cc-button cc-outlined" type="button" hidden>加载更多</button>
+        <section class="cc-surface admin-section" aria-labelledby="data-title">
+          <h2 id="data-title">导入与导出</h2>
+          <p class="cc-muted">导出是管理备份，可能含未公开评论。请勿公开分享。</p>
+          <div class="cc-row">
+            <button id="export" class="cc-button cc-outlined" type="button">导出 JSON</button>
+            <label class="cc-check"><input id="private" type="checkbox">在私密备份中包含作者邮箱</label>
+          </div>
+          <form id="import-form" class="admin-section">
+            <label class="cc-field"><span>标准 JSON 备份（上限 5 MiB）</span><input type="file" accept="application/json,.json" required name="file"></label>
+            <div class="cc-row">
+              <button class="cc-button cc-outlined" type="submit">试跑导入</button>
+              <button id="apply" class="cc-button cc-filled" type="button" disabled>确认导入</button>
+            </div>
+          </form>
+          <p id="data-status" class="cc-status" role="status"></p>
+          <pre id="report" hidden></pre>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

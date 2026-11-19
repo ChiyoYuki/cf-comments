@@ -1,0 +1,142 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import { ApiError, createApi, httpUrl } from "../../src/client/api.ts";
+import { createEmojiResolver } from "../../src/client/emoji.ts";
+import {
+  arrangeReplies,
+  hasMoreReplies,
+  mergeById,
+} from "../../src/client/threads.ts";
+import type { CommentThreadPage, ReplyPage } from "../../src/shared/types.ts";
+
+function fixture<Data>(name: string): Data {
+  return JSON.parse(
+    readFileSync(
+      new URL(`../../docs/fixtures/${name}.json`, import.meta.url),
+      "utf8",
+    ),
+  );
+}
+
+test("a hidden or deleted ancestor remains in the hierarchy without becoming replyable content", () => {
+  const thread = fixture<CommentThreadPage>("comments-hidden-parent").items[0];
+  assert.ok(thread?.is_placeholder);
+  const tree = arrangeReplies(thread.id, thread.replies);
+  assert.deepEqual(
+    tree.map(({ row, depth }) => [row.placeholder_reason, depth]),
+    [
+      ["deleted", 0],
+      [null, 1],
+      [null, 2],
+    ],
+  );
+  assert.equal(tree[0]?.row.content_html, null);
+  assert.equal(thread.reply_count, 2);
+});
+
+test("reply pages merge by ID and an ancestor loaded later restores indentation", () => {
+  const thread = fixture<CommentThreadPage>("comments-paginated").items[0];
+  assert.ok(thread);
+  const extra = fixture<ReplyPage>("replies-paginated");
+  assert.equal(arrangeReplies(thread.id, extra.items)[0]?.depth, 0);
+  const merged = mergeById(extra.items, [...thread.replies, ...extra.items]);
+  assert.equal(merged.length, thread.reply_count);
+  assert.deepEqual(
+    arrangeReplies(thread.id, merged).map(({ depth }) => depth),
+    [0, 1, 2],
+  );
+  assert.equal(
+    hasMoreReplies(thread.replies_next_cursor, true, thread.reply_count),
+    true,
+  );
+  assert.equal(
+    hasMoreReplies(extra.next_cursor, true, thread.reply_count),
+    false,
+  );
+  assert.equal(hasMoreReplies(null, false, thread.reply_count), true);
+  assert.equal(hasMoreReplies(null, false, 0), false);
+});
+
+test("request helper preserves opaque cursors, supports 204, and exposes moderation conflicts", async () => {
+  const origin = new URL("https://comments.example.test");
+  const responses = [
+    new Response(null, { status: 204 }),
+    Response.json(
+      { error: { code: "HAS_CHILD_COMMENTS", message: "Children exist" } },
+      { status: 409 },
+    ),
+  ];
+  const calls: Request[] = [];
+  const mock: typeof fetch = async (input, options) => {
+    calls.push(new Request(input, options));
+    const response = responses.shift();
+    assert.ok(response);
+    return response;
+  };
+  const api = createApi(origin, mock);
+  const opts = {
+    method: "PATCH" as const,
+    token: "example-token",
+    body: { status: "deleted", hard_delete: true },
+    query: { cursor: "has+/=?", dry_run: false, unused: null },
+  };
+  await api.empty("/v1/admin/comments/example", opts);
+  const call = calls[0];
+  assert.ok(call);
+  assert.equal(call.credentials, "omit");
+  assert.equal(call.redirect, "error");
+  assert.equal(call.headers.get("Authorization"), "Bearer example-token");
+  assert.deepEqual(Object.fromEntries(new URL(call.url).searchParams), {
+    cursor: "has+/=?",
+    dry_run: "false",
+  });
+  await assert.rejects(
+    api.empty("/v1/admin/comments/example", opts),
+    (error: unknown) =>
+      error instanceof ApiError &&
+      error.status === 409 &&
+      error.code === "HAS_CHILD_COMMENTS",
+  );
+  await assert.rejects(
+    api.empty("//other.example.test/", opts),
+    /Unexpected API origin/,
+  );
+  assert.equal(calls.length, 2);
+});
+
+test("Misskey lookups share an in-memory request and never pass credentials or unsafe URLs", async () => {
+  const calls: Request[] = [];
+  const signal = new AbortController();
+  const mock: typeof fetch = async (input, options) => {
+    const request = new Request(input, options);
+    calls.push(request);
+    const { name } = (await request.json()) as { name: string };
+    if (name === "failed") throw new TypeError("CORS blocked");
+    if (name === "missing") return new Response(null, { status: 404 });
+    return Response.json({
+      url:
+        name === "safe"
+          ? "https://cdn.example.test/one.webp"
+          : "data:image/svg+xml,not-allowed",
+    });
+  };
+  const resolve = createEmojiResolver(
+    "https://social.example.test/",
+    signal.signal,
+    mock,
+  );
+  const first = resolve("safe");
+  assert.equal(first, resolve("safe"));
+  assert.equal(await first, "https://cdn.example.test/one.webp");
+  assert.equal(calls[0]?.url, "https://social.example.test/api/emoji");
+  assert.equal(calls[0]?.credentials, "omit");
+  assert.equal(await resolve("failed"), null);
+  assert.equal(await resolve("missing"), null);
+  assert.equal(await resolve("unsafe"), null);
+  assert.equal(await resolve("bad/name"), null);
+  signal.abort();
+  assert.equal(await resolve("post_abort"), null);
+  assert.equal(calls.length, 4);
+  assert.equal(httpUrl("https://name:password@example.test/"), null);
+});

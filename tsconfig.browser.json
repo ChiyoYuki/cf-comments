@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": [
+    "src/client/**/*.ts",
+    "src/admin/**/*.ts",
+    "tests/client/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".cloudflare"]
+}

@@ -1,0 +1,19 @@
+/assets/v1/*
+  Access-Control-Allow-Origin: *
+  X-Content-Type-Options: nosniff
+
+/admin
+  Cache-Control: no-store
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  X-Robots-Tag: noindex, nofollow
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src https: http:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'
+
+/admin/*
+  Cache-Control: no-store
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  X-Robots-Tag: noindex, nofollow
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src https: http:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'
