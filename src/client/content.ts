@@ -1,4 +1,5 @@
 import { httpUrl } from "./api.ts";
+import { labelsFor } from "./labels.ts";
 
 export function element<Tag extends keyof HTMLElementTagNameMap>(
   tag: Tag,
@@ -30,6 +31,26 @@ export function formatTime(
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+export function formatCommentTime(
+  timestamp: string | number,
+  locale: string,
+  now = Date.now(),
+): string | null {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.valueOf())) return null;
+  const seconds = (date.getTime() - now) / 1000;
+  const elapsed = Math.abs(seconds);
+  const day = 24 * 60 * 60;
+  if (elapsed > 7 * day)
+    return new Intl.DateTimeFormat(locale, { dateStyle: "short" }).format(date);
+  if (elapsed < 60) return labelsFor(locale).justNow;
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (elapsed >= day) return relative.format(Math.trunc(seconds / day), "day");
+  if (elapsed >= 3600)
+    return relative.format(Math.trunc(seconds / 3600), "hour");
+  return relative.format(Math.trunc(seconds / 60), "minute");
 }
 
 type ContentOptions = {
@@ -68,16 +89,23 @@ export function renderContent(
     if (formatted) time.textContent = formatted;
   }
   for (const spoiler of fragment.querySelectorAll<HTMLElement>(".mfm-blur")) {
-    const reveal = button(options.reveal, "cc-spoiler");
-    reveal.setAttribute("aria-expanded", "false");
+    spoiler.classList.add("cc-spoiler");
+    spoiler.dataset.revealed = "false";
+    const reveal = button("", "cc-spoiler-toggle");
     const content = element("span", "cc-spoiler-content");
-    content.hidden = true;
     content.append(...spoiler.childNodes);
+    const setRevealed = (visible: boolean) => {
+      spoiler.dataset.revealed = String(visible);
+      content.inert = !visible;
+      reveal.setAttribute("aria-expanded", String(visible));
+      reveal.setAttribute(
+        "aria-label",
+        visible ? labelsFor(options.locale ?? "en").conceal : options.reveal,
+      );
+    };
+    setRevealed(false);
     spoiler.append(reveal, content);
-    reveal.addEventListener("click", () => {
-      content.hidden = !content.hidden;
-      reveal.setAttribute("aria-expanded", String(!content.hidden));
-    });
+    reveal.addEventListener("click", () => setRevealed(content.inert));
   }
   target.replaceChildren(fragment);
   if (!options.images || !options.emoji) return;

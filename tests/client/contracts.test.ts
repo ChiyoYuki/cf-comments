@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { ApiError, createApi, httpUrl } from "../../src/client/api.ts";
 import { avatarInitial, commentAvatarUrl } from "../../src/client/avatar.ts";
+import { formatCommentTime, formatTime } from "../../src/client/content.ts";
 import { createEmojiResolver } from "../../src/client/emoji.ts";
 import {
   arrangeReplies,
@@ -19,6 +20,24 @@ function fixture<Data>(name: string): Data {
     ),
   );
 }
+
+test("reader comment dates use local relative time through seven days", () => {
+  const now = Date.parse("2026-11-19T12:00:00Z");
+  const day = 86_400_000;
+  assert.equal(formatCommentTime(now - 59_999, "zh-CN", now), "刚刚");
+  assert.equal(formatCommentTime(now, "en", now), "just now");
+  assert.equal(formatCommentTime(now - 60_000, "en", now), "1 minute ago");
+  assert.equal(formatCommentTime(now - 3_600_000, "en", now), "1 hour ago");
+  assert.equal(formatCommentTime(now - day, "en", now), "yesterday");
+  assert.equal(formatCommentTime(now - 7 * day, "en", now), "7 days ago");
+  const old = now - 7 * day - 1;
+  assert.equal(
+    formatCommentTime(old, "en", now),
+    new Intl.DateTimeFormat("en", { dateStyle: "short" }).format(old),
+  );
+  assert.notEqual(formatCommentTime(old, "en", now), formatTime(old, "en"));
+  assert.equal(formatCommentTime("invalid", "en", now), null);
+});
 
 test("monogram fallback preserves the first complete nickname character", () => {
   assert.equal(avatarInitial("  晴空"), "晴");

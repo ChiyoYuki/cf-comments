@@ -69,16 +69,55 @@
   font-size: 0.875em;
 }
 .cc-spoiler {
-  border-radius: 0.5em;
-  border: 1px solid var(--md-sys-color-outline);
-  padding: 0.15em 0.5em;
-  background: var(--md-sys-color-surface-container);
-  color: inherit;
+  position: relative;
+  display: inline-block;
+  max-inline-size: 100%;
+  border-radius: 0.75em;
+}
+.cc-spoiler-content {
+  display: inline-block;
+  max-inline-size: 100%;
+  filter: blur(0);
+  transition: filter 220ms ease;
+}
+.cc-spoiler[data-revealed="false"] {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.cc-spoiler[data-revealed="false"] > .cc-spoiler-content {
+  filter: blur(5px);
+  user-select: none;
+  pointer-events: none;
+}
+.cc-spoiler-toggle {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: inherit;
+  padding: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  background: transparent;
   font: inherit;
   cursor: pointer;
 }
-.cc-spoiler[aria-expanded="true"] {
-  margin-inline-end: 0.35em;
+.cc-spoiler-toggle:focus-visible {
+  outline-offset: -2px;
+}
+.cc-spoiler[data-revealed="false"] > .cc-spoiler-toggle {
+  position: absolute;
+  inset: 0;
+}
+.cc-spoiler[data-revealed="true"] > .cc-spoiler-toggle {
+  inline-size: 1.5em;
+  block-size: 1.5em;
+  vertical-align: middle;
+}
+.cc-spoiler[data-revealed="true"] > .cc-spoiler-toggle::before {
+  content: "";
+  inline-size: 0.4em;
+  block-size: 0.4em;
+  border: solid currentColor;
+  border-width: 1.5px 0 0 1.5px;
+  transform: translateY(0.1em) rotate(45deg);
 }
 .mfm-center {
   text-align: center;
@@ -286,6 +325,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .cc-spoiler-content {
+    transition: none;
+  }
   .mfm-anim {
     animation-play-state: paused;
     animation-delay: 0s;

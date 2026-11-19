@@ -9,7 +9,13 @@ import type {
 } from "../shared/types.ts";
 import { type Api, ApiError, createApi, errorMessage, httpUrl } from "./api.ts";
 import { renderAvatar } from "./avatar.ts";
-import { button, element, formatTime, renderContent } from "./content.ts";
+import {
+  button,
+  element,
+  formatCommentTime,
+  formatTime,
+  renderContent,
+} from "./content.ts";
 import { field, syntaxPicker, syntaxValue, textInput } from "./editor.ts";
 import { createEmojiResolver } from "./emoji.ts";
 import { labelsFor } from "./labels.ts";
@@ -284,9 +290,10 @@ class Widget {
     const date = element(
       "time",
       "cc-comment-time",
-      formatTime(row.created_at, this.locale) ?? "",
+      formatCommentTime(row.created_at, this.locale) ?? "",
     );
     date.dateTime = row.created_at;
+    date.title = formatTime(row.created_at, this.locale) ?? "";
     author.append(date);
     const header = element("header", "cc-byline");
     const reply = button(this.text.reply, "cc-button cc-reply-action");
@@ -387,16 +394,9 @@ class Widget {
     mail.autocomplete = "email";
     const site = textInput("author_url", "url", 512);
     site.setAttribute("autocomplete", "url");
-    const emailField = field(this.text.email, mail);
-    if (config.gravatar_enabled) {
-      const avatarHint = element("span", "cc-muted", this.text.gravatarEmail);
-      avatarHint.id = "cc-gravatar-email";
-      mail.setAttribute("aria-describedby", avatarHint.id);
-      emailField.append(avatarHint);
-    }
     fields.append(
       field(this.text.name, name),
-      emailField,
+      field(this.text.email, mail),
       field(this.text.website, site),
     );
     const trap = textInput("honeypot", "text", 200);
@@ -412,6 +412,7 @@ class Widget {
     consent.hidden = !config.reply_notify_enabled;
     notify.disabled = !config.reply_notify_enabled;
     const options = element("details", "cc-options");
+    options.open = true;
     const summary = element("summary");
     const nickname = element("span", "cc-options-name");
     nickname.hidden = true;
@@ -451,13 +452,24 @@ class Widget {
     const preview = button(this.text.preview);
     const post = button(this.text.post, "cc-button cc-filled");
     post.type = "submit";
+    const remaining = element("span", "cc-remaining");
+    const numbers = new Intl.NumberFormat(this.locale);
+    const updateRemaining = () => {
+      const length = this.input.value.length;
+      const count = config.max_content_length - length;
+      remaining.textContent = length
+        ? this.text.remaining.replace("{count}", numbers.format(count))
+        : "";
+      remaining.dataset.level =
+        count <= 50 ? "error" : count <= 300 ? "warning" : "normal";
+    };
     const help = element("a", "cc-syntax-help");
     help.target = "_blank";
     help.rel = "noopener noreferrer";
     const tools = element("div", "cc-row cc-format-tools");
     tools.append(syntax, help);
     const actions = element("div", "cc-row cc-composer-actions");
-    actions.append(preview, post);
+    actions.append(preview, remaining, post);
     toolbar.append(tools, actions);
     const previewBox = element("div", "cc-md cc-preview");
     previewBox.hidden = true;
@@ -491,7 +503,10 @@ class Widget {
           previewBox.textContent = errorMessage(error, this.text.previewError);
       }
     });
-    this.input.addEventListener("input", clearPreview);
+    this.input.addEventListener("input", () => {
+      updateRemaining();
+      clearPreview();
+    });
     const updateSyntaxHelp = () => {
       const mode = syntaxValue(new FormData(this.form));
       help.href =
@@ -514,6 +529,7 @@ class Widget {
     this.form.append(toolbar, previewBox, this.notice);
     this.setParent(null);
     updateSyntaxHelp();
+    updateRemaining();
     this.form.hidden = false;
     this.form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -555,6 +571,7 @@ class Widget {
         );
         if (this.signal.aborted) return;
         this.input.value = "";
+        updateRemaining();
         this.setParent(null);
         clearPreview();
         this.notice.textContent = [

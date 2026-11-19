@@ -222,6 +222,21 @@
 .cc-composer-actions {
   margin-inline-start: auto;
 }
+.cc-remaining {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cc-remaining:empty {
+  display: none;
+}
+.cc-remaining[data-level="warning"] {
+  color: light-dark(#795415, #e4bf75);
+}
+.cc-remaining[data-level="error"] {
+  color: var(--md-sys-color-error);
+}
 .cc-option-fields {
   display: grid;
   gap: 0.25rem;
