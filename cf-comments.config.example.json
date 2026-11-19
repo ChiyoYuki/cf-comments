@@ -1,23 +1,23 @@
 {
-  "workerName": "cf-comments",
-  "stagingWorkerName": "cf-comments-staging",
-  "siteUrl": "https://blog.example.com",
-  "allowedOrigins": ["https://blog.example.com"],
-  "commentsDomain": "comments.example.com",
-  "stagingDomain": "",
-  "d1DatabaseName": "cf-comments",
-  "d1DatabaseId": "",
-  "d1StagingDatabaseName": "cf-comments-staging",
-  "d1StagingDatabaseId": "",
-  "moderationMode": "pre",
-  "maxContentLength": 4000,
-  "misskeyInstanceUrl": "https://misskey.io",
-  "turnstileSiteKey": "",
-  "email": {
-    "adminProvider": "none",
-    "replyProvider": "none",
-    "from": "comments@example.com",
-    "adminNotifyEmail": "",
-    "httpEndpoint": ""
-  }
+	"workerName": "cf-comments",
+	"stagingWorkerName": "cf-comments-staging",
+	"siteUrl": "https://blog.example.com",
+	"allowedOrigins": ["https://blog.example.com"],
+	"commentsDomain": "comments.example.com",
+	"stagingDomain": "",
+	"d1DatabaseName": "cf-comments",
+	"d1DatabaseId": "",
+	"d1StagingDatabaseName": "cf-comments-staging",
+	"d1StagingDatabaseId": "",
+	"moderationMode": "pre",
+	"maxContentLength": 3000,
+	"misskeyInstanceUrl": "https://misskey.io",
+	"turnstileSiteKey": "",
+	"email": {
+		"adminProvider": "none",
+		"replyProvider": "none",
+		"from": "comments@example.com",
+		"adminNotifyEmail": "",
+		"httpEndpoint": ""
+	}
 }
