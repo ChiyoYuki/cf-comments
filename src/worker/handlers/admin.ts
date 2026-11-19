@@ -1,4 +1,4 @@
-import { drainEmailOutbox, prepareEnqueueOutbox } from "../../email/outbox.ts";
+import { drainEmailOutbox } from "../../email/outbox.ts";
 import {
   exportCanonicalFromDb,
   importCanonicalToDb,
@@ -17,32 +17,25 @@ import {
   normalizeHttpUrl,
   normalizePath,
 } from "../../shared/path.ts";
-import type {
-  AdminAvatarBackfillReport,
-  AdminAvatarBackfillRequest,
-  AdminCommentCounts,
-  AdminCommentPage,
-  AdminCreateCommentRequest,
-  AdminUpdateCommentRequest,
-  CommentRow,
-  CommentStatus,
+import {
+  type AdminAvatarBackfillReport,
+  type AdminAvatarBackfillRequest,
+  type AdminCommentCounts,
+  type AdminCommentPage,
+  type AdminCreateCommentRequest,
+  type AdminUpdateCommentRequest,
+  type CommentRow,
+  type CommentStatus,
+  VALID_COMMENT_STATUSES,
 } from "../../shared/types.ts";
 import { readJsonBody, requireAdminAuth } from "../auth.ts";
 import type { RuntimeConfig, WorkerEnv } from "../env.ts";
 import { toAdminComment } from "../tree.ts";
 import {
-  deriveUnsubscribeToken,
   parseCommentSyntax,
+  prepareReplyNotificationIfEligible,
   resolveCanonicalPath,
 } from "./public.ts";
-
-const VALID_STATUSES = new Set<CommentStatus>([
-  "approved",
-  "pending",
-  "hidden",
-  "spam",
-  "deleted",
-]);
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
@@ -54,7 +47,10 @@ export async function handleAdminListComments(
 
   const url = new URL(request.url);
   const statusParam = url.searchParams.get("status");
-  if (statusParam && !VALID_STATUSES.has(statusParam as CommentStatus)) {
+  if (
+    statusParam &&
+    !VALID_COMMENT_STATUSES.has(statusParam as CommentStatus)
+  ) {
     throw new AppError(400, "VALIDATION_ERROR", "Invalid status filter.");
   }
 
@@ -236,42 +232,20 @@ export async function handleAdminCreateComment(
     ),
   ];
 
-  if (
-    parentRow &&
-    parentRow.notify_on_reply === 1 &&
-    parentRow.author_email &&
-    parentRow.author_email !== cfg.adminNotifyEmail &&
-    cfg.replyEmailProvider !== "none"
-  ) {
-    const parentSub = await env.DB.prepare(
-      "SELECT status FROM email_subscriptions WHERE email_normalized = ?",
-    )
-      .bind(parentRow.author_email)
-      .first<{ status: string }>();
-
-    if (parentSub?.status === "verified") {
-      const { rawToken: unsubToken } = await deriveUnsubscribeToken(
-        cfg.tokenSigningSecret,
-        parentRow.author_email,
-      );
-      statements.push(
-        prepareEnqueueOutbox(env.DB, {
-          dedupeKey: `reply:${id}`,
-          kind: "reply_approved",
-          recipientEmail: parentRow.author_email,
-          payload: {
-            reply_id: id,
-            parent_id: parentRow.id,
-            path: canonicalPath,
-            reply_author_name: authorName,
-            reply_content_markdown: contentMarkdown,
-            site_url: cfg.siteUrl,
-            unsubscribe_url: `${origin}/v1/subscriptions/unsubscribe?token=${encodeURIComponent(unsubToken)}`,
-          },
-          nowIso: now,
-        }),
-      );
-    }
+  const replyStmt = await prepareReplyNotificationIfEligible({
+    db: env.DB,
+    cfg,
+    origin,
+    parentRow,
+    replyId: id,
+    replyAuthorName: authorName,
+    replyAuthorEmail: adminEmail,
+    replyContentMarkdown: contentMarkdown,
+    path: canonicalPath,
+    nowIso: now,
+  });
+  if (replyStmt) {
+    statements.push(replyStmt);
   }
 
   await env.DB.batch(statements);
@@ -310,7 +284,7 @@ export async function handleAdminUpdateComment(
     typeof body !== "object" ||
     body === null ||
     typeof body.status !== "string" ||
-    !VALID_STATUSES.has(body.status)
+    !VALID_COMMENT_STATUSES.has(body.status)
   ) {
     throw new AppError(
       400,
@@ -393,8 +367,7 @@ export async function handleAdminUpdateComment(
       body.status === "approved" &&
       existing.status !== "approved" &&
       existing.parent_id &&
-      existing.import_source === null &&
-      cfg.replyEmailProvider !== "none"
+      existing.import_source === null
     ) {
       const parentRow = await env.DB.prepare(
         "SELECT * FROM comments WHERE id = ?",
@@ -402,42 +375,20 @@ export async function handleAdminUpdateComment(
         .bind(existing.parent_id)
         .first<CommentRow>();
 
-      if (
-        parentRow &&
-        parentRow.notify_on_reply === 1 &&
-        parentRow.author_email &&
-        parentRow.author_email !== existing.author_email
-      ) {
-        const parentSub = await env.DB.prepare(
-          "SELECT status FROM email_subscriptions WHERE email_normalized = ?",
-        )
-          .bind(parentRow.author_email)
-          .first<{ status: string }>();
-
-        if (parentSub?.status === "verified") {
-          const origin = new URL(request.url).origin;
-          const { rawToken: unsubToken } = await deriveUnsubscribeToken(
-            cfg.tokenSigningSecret,
-            parentRow.author_email,
-          );
-          statements.push(
-            prepareEnqueueOutbox(env.DB, {
-              dedupeKey: `reply:${existing.id}`,
-              kind: "reply_approved",
-              recipientEmail: parentRow.author_email,
-              payload: {
-                reply_id: existing.id,
-                parent_id: parentRow.id,
-                path: existing.path,
-                reply_author_name: existing.author_name,
-                reply_content_markdown: existing.content_markdown ?? "",
-                site_url: cfg.siteUrl,
-                unsubscribe_url: `${origin}/v1/subscriptions/unsubscribe?token=${encodeURIComponent(unsubToken)}`,
-              },
-              nowIso: now,
-            }),
-          );
-        }
+      const replyStmt = await prepareReplyNotificationIfEligible({
+        db: env.DB,
+        cfg,
+        origin: new URL(request.url).origin,
+        parentRow,
+        replyId: existing.id,
+        replyAuthorName: existing.author_name,
+        replyAuthorEmail: existing.author_email,
+        replyContentMarkdown: existing.content_markdown ?? "",
+        path: existing.path,
+        nowIso: now,
+      });
+      if (replyStmt) {
+        statements.push(replyStmt);
       }
     }
 

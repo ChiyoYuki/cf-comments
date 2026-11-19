@@ -55,6 +55,37 @@ export interface RuntimeConfig {
   tokenSigningSecret: string;
 }
 
+export function parseModerationMode(raw: string | undefined): ModerationMode {
+  return raw === "post" ? "post" : "pre";
+}
+
+export function parseMaxContentLength(
+  raw: string | number | undefined,
+  fallback = 3000,
+): number {
+  const parsed =
+    typeof raw === "number"
+      ? raw
+      : Number.parseInt(raw || String(fallback), 10);
+  return Number.isFinite(parsed) && parsed >= 100 && parsed <= 10000
+    ? parsed
+    : fallback;
+}
+
+export function parseAdminEmailProvider(
+  raw: string | undefined,
+): AdminEmailProviderKind {
+  return raw === "cf_email_routing" || raw === "resend" || raw === "http"
+    ? raw
+    : "none";
+}
+
+export function parseReplyEmailProvider(
+  raw: string | undefined,
+): ReplyEmailProviderKind {
+  return raw === "resend" || raw === "http" ? raw : "none";
+}
+
 export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
   const siteUrl = (env.SITE_URL || "https://example.com").replace(/\/$/, "");
   const allowedOrigins = new Set(
@@ -64,33 +95,16 @@ export function parseRuntimeConfig(env: WorkerEnv): RuntimeConfig {
       .filter(Boolean),
   );
 
-  const moderationMode: ModerationMode =
-    env.MODERATION_MODE === "post" ? "post" : "pre";
-
-  const parsedMax = Number.parseInt(env.MAX_CONTENT_LENGTH || "3000", 10);
-  const maxContentLength =
-    Number.isFinite(parsedMax) && parsedMax >= 100 && parsedMax <= 10000
-      ? parsedMax
-      : 3000;
+  const moderationMode = parseModerationMode(env.MODERATION_MODE);
+  const maxContentLength = parseMaxContentLength(env.MAX_CONTENT_LENGTH);
 
   const misskeyRaw = env.MISSKEY_INSTANCE_URL?.trim();
   const misskeyInstanceUrl = misskeyRaw
     ? (isSafeHttpUrl(misskeyRaw)?.replace(/\/$/, "") ?? null)
     : null;
 
-  const adminProviderRaw = env.ADMIN_EMAIL_PROVIDER || "none";
-  const adminEmailProvider: AdminEmailProviderKind =
-    adminProviderRaw === "cf_email_routing" ||
-    adminProviderRaw === "resend" ||
-    adminProviderRaw === "http"
-      ? adminProviderRaw
-      : "none";
-
-  const replyProviderRaw = env.REPLY_EMAIL_PROVIDER || "none";
-  const replyEmailProvider: ReplyEmailProviderKind =
-    replyProviderRaw === "resend" || replyProviderRaw === "http"
-      ? replyProviderRaw
-      : "none";
+  const adminEmailProvider = parseAdminEmailProvider(env.ADMIN_EMAIL_PROVIDER);
+  const replyEmailProvider = parseReplyEmailProvider(env.REPLY_EMAIL_PROVIDER);
 
   return {
     siteUrl,

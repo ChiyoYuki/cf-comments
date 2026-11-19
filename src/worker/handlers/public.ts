@@ -59,6 +59,60 @@ export async function deriveUnsubscribeToken(
   return { rawToken, tokenHash };
 }
 
+export async function prepareReplyNotificationIfEligible(params: {
+  db: D1Database;
+  cfg: RuntimeConfig;
+  origin: string;
+  parentRow: CommentRow | null;
+  replyId: string;
+  replyAuthorName: string | null;
+  replyAuthorEmail: string | null;
+  replyContentMarkdown: string;
+  path: string;
+  nowIso: string;
+}): Promise<D1PreparedStatement | null> {
+  const { db, cfg, parentRow } = params;
+  if (
+    parentRow?.notify_on_reply !== 1 ||
+    !parentRow.author_email ||
+    parentRow.author_email === params.replyAuthorEmail ||
+    cfg.replyEmailProvider === "none"
+  ) {
+    return null;
+  }
+
+  const parentSub = await db
+    .prepare(
+      "SELECT status FROM email_subscriptions WHERE email_normalized = ?",
+    )
+    .bind(parentRow.author_email)
+    .first<{ status: string }>();
+
+  if (parentSub?.status !== "verified") {
+    return null;
+  }
+
+  const { rawToken: unsubToken } = await deriveUnsubscribeToken(
+    cfg.tokenSigningSecret,
+    parentRow.author_email,
+  );
+  return prepareEnqueueOutbox(db, {
+    dedupeKey: `reply:${params.replyId}`,
+    kind: "reply_approved",
+    recipientEmail: parentRow.author_email,
+    payload: {
+      reply_id: params.replyId,
+      parent_id: parentRow.id,
+      path: params.path,
+      reply_author_name: params.replyAuthorName,
+      reply_content_markdown: params.replyContentMarkdown,
+      site_url: cfg.siteUrl,
+      unsubscribe_url: `${params.origin}/v1/subscriptions/unsubscribe?token=${encodeURIComponent(unsubToken)}`,
+    },
+    nowIso: params.nowIso,
+  });
+}
+
 export function parseCommentSyntax(raw: unknown): CommentSyntax {
   if (raw === undefined || raw === null || raw === "") {
     return "gfm";
@@ -496,42 +550,21 @@ export async function handleCreateComment(
   }
 
   // 3. Immediate reply notification if moderationMode=post (approved immediately)
-  if (
-    status === "approved" &&
-    parentRow &&
-    parentRow.notify_on_reply === 1 &&
-    parentRow.author_email &&
-    parentRow.author_email !== authorEmail &&
-    cfg.replyEmailProvider !== "none"
-  ) {
-    const parentSub = await env.DB.prepare(
-      "SELECT status FROM email_subscriptions WHERE email_normalized = ?",
-    )
-      .bind(parentRow.author_email)
-      .first<{ status: string }>();
-
-    if (parentSub?.status === "verified") {
-      const { rawToken: unsubToken } = await deriveUnsubscribeToken(
-        cfg.tokenSigningSecret,
-        parentRow.author_email,
-      );
-      statements.push(
-        prepareEnqueueOutbox(env.DB, {
-          dedupeKey: `reply:${id}`,
-          kind: "reply_approved",
-          recipientEmail: parentRow.author_email,
-          payload: {
-            reply_id: id,
-            parent_id: parentRow.id,
-            path: canonicalPath,
-            reply_author_name: authorName,
-            reply_content_markdown: contentMarkdown,
-            site_url: cfg.siteUrl,
-            unsubscribe_url: `${origin}/v1/subscriptions/unsubscribe?token=${encodeURIComponent(unsubToken)}`,
-          },
-          nowIso: now,
-        }),
-      );
+  if (status === "approved") {
+    const replyStmt = await prepareReplyNotificationIfEligible({
+      db: env.DB,
+      cfg,
+      origin,
+      parentRow,
+      replyId: id,
+      replyAuthorName: authorName,
+      replyAuthorEmail: authorEmail,
+      replyContentMarkdown: contentMarkdown,
+      path: canonicalPath,
+      nowIso: now,
+    });
+    if (replyStmt) {
+      statements.push(replyStmt);
     }
   }
 

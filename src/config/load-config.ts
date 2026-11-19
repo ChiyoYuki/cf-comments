@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  parseAdminEmailProvider,
+  parseMaxContentLength,
+  parseModerationMode,
+  parseReplyEmailProvider,
+} from "../worker/env.ts";
 
 export interface ProjectEmailConfig {
   adminProvider: "cf_email_routing" | "resend" | "http" | "none";
@@ -106,39 +112,25 @@ export function loadProjectConfig(configPath?: string): ProjectConfig {
           .filter(Boolean)
       : [siteUrl];
 
-  const adminProviderRaw =
+  const adminProvider = parseAdminEmailProvider(
     env.CF_ADMIN_EMAIL_PROVIDER ||
-    file.email?.adminProvider ||
-    DEFAULT_CONFIG.email.adminProvider;
-  const adminProvider =
-    adminProviderRaw === "cf_email_routing" ||
-    adminProviderRaw === "resend" ||
-    adminProviderRaw === "http"
-      ? adminProviderRaw
-      : "none";
-
-  const replyProviderRaw =
+      file.email?.adminProvider ||
+      DEFAULT_CONFIG.email.adminProvider,
+  );
+  const replyProvider = parseReplyEmailProvider(
     env.CF_REPLY_EMAIL_PROVIDER ||
-    file.email?.replyProvider ||
-    DEFAULT_CONFIG.email.replyProvider;
-  const replyProvider =
-    replyProviderRaw === "resend" || replyProviderRaw === "http"
-      ? replyProviderRaw
-      : "none";
-
-  const moderationRaw =
+      file.email?.replyProvider ||
+      DEFAULT_CONFIG.email.replyProvider,
+  );
+  const moderationMode = parseModerationMode(
     env.CF_MODERATION_MODE ||
-    file.moderationMode ||
-    DEFAULT_CONFIG.moderationMode;
-  const moderationMode = moderationRaw === "post" ? "post" : "pre";
-
-  const maxLenRaw = env.CF_MAX_CONTENT_LENGTH
-    ? Number.parseInt(env.CF_MAX_CONTENT_LENGTH, 10)
-    : (file.maxContentLength ?? DEFAULT_CONFIG.maxContentLength);
-  const maxContentLength =
-    Number.isFinite(maxLenRaw) && maxLenRaw >= 100 && maxLenRaw <= 10000
-      ? maxLenRaw
-      : DEFAULT_CONFIG.maxContentLength;
+      file.moderationMode ||
+      DEFAULT_CONFIG.moderationMode,
+  );
+  const maxContentLength = parseMaxContentLength(
+    env.CF_MAX_CONTENT_LENGTH ?? file.maxContentLength,
+    DEFAULT_CONFIG.maxContentLength,
+  );
 
   const gravatarEnabled =
     env.CF_GRAVATAR_ENABLED !== undefined

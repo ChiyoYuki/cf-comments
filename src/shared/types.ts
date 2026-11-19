@@ -5,6 +5,14 @@ export type CommentStatus =
   | "spam"
   | "deleted";
 
+export const VALID_COMMENT_STATUSES: ReadonlySet<CommentStatus> = new Set([
+  "approved",
+  "pending",
+  "hidden",
+  "spam",
+  "deleted",
+]);
+
 export type CommentSyntax = "gfm" | "mfm";
 
 export type PlaceholderReason = "hidden" | "deleted";

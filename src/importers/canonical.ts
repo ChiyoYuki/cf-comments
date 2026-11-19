@@ -6,23 +6,17 @@ import {
   normalizeHttpUrl,
   normalizePath,
 } from "../shared/path.ts";
-import type {
-  CanonicalExport,
-  CommentRow,
-  CommentStatus,
-  CommentSyntax,
-  ExportComment,
-  ExportPathAlias,
-  ImportReport,
+import {
+  type CanonicalExport,
+  type CommentRow,
+  type CommentStatus,
+  type CommentSyntax,
+  type ExportComment,
+  type ExportPathAlias,
+  type ImportReport,
+  VALID_COMMENT_STATUSES,
 } from "../shared/types.ts";
 
-const VALID_STATUSES = new Set<CommentStatus>([
-  "approved",
-  "pending",
-  "hidden",
-  "spam",
-  "deleted",
-]);
 const ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 
 export function validateCanonicalExport(raw: unknown): CanonicalExport {
@@ -122,7 +116,7 @@ export function validateCanonicalExport(raw: unknown): CanonicalExport {
 
     if (
       typeof c.status !== "string" ||
-      !VALID_STATUSES.has(c.status as CommentStatus)
+      !VALID_COMMENT_STATUSES.has(c.status as CommentStatus)
     ) {
       throw new AppError(
         400,
